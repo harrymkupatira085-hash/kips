@@ -150,6 +150,15 @@ select {
     color: var(--primary-dark);
 }
 
+.main-nav a[aria-current="page"] {
+    color: var(--primary-dark);
+    font-weight: 750;
+}
+
+.main-nav a[aria-current="page"]::after {
+    transform: scaleX(1);
+}
+
 .main-nav a:hover::after {
     transform: scaleX(1);
 }
@@ -179,6 +188,9 @@ select {
 
 .nav-button {
     padding: 12px 20px;
+    background: linear-gradient(135deg, #f97316 0%, #ff9f43 100%);
+    color: #fff;
+    box-shadow: 0 12px 24px rgba(249, 115, 22, .27);
 }
 
 .primary-btn,
@@ -496,6 +508,104 @@ select {
 .order-card h2 {
     margin: 0 0 22px;
     font-size: clamp(2rem, 2vw, 2.5rem);
+}
+
+.payment-choice-note {
+    margin: 12px 0 20px;
+    padding: 13px 15px;
+    border: 1px solid rgba(124, 58, 18, .12);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, .72);
+    color: #705b49;
+    font-size: .86rem;
+    line-height: 1.5;
+}
+
+.customer-order-card h1 {
+    margin: 0 0 12px;
+    font-size: clamp(2rem, 5vw, 2.8rem);
+}
+
+.customer-order-card > p {
+    line-height: 1.6;
+}
+
+.customer-order-summary {
+    display: grid;
+    gap: 12px;
+    margin: 22px 0;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, .74);
+}
+
+.customer-order-summary > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.customer-order-summary span {
+    color: var(--muted);
+}
+
+.customer-order-summary strong {
+    text-align: right;
+}
+
+.customer-payment-choice {
+    display: grid;
+    gap: 12px;
+    margin: 18px 0;
+}
+
+.customer-payment-choice select {
+    width: 100%;
+    padding: 14px 16px;
+    border: 1px solid rgba(124, 58, 18, .14);
+    border-radius: 14px;
+    background: #fff;
+    color: var(--text);
+    font: inherit;
+}
+
+.customer-payment-choice p {
+    margin: 0;
+    color: var(--muted);
+    font-size: .82rem;
+    line-height: 1.5;
+}
+
+.customer-order-card > .secondary-btn,
+.customer-payment-choice .primary-btn {
+    width: 100%;
+    justify-content: center;
+    border: 0;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 700;
+}
+
+.customer-order-card > p:last-child {
+    text-align: center;
+}
+
+.confirmation-order-link {
+    justify-content: center;
+    width: 100%;
+    margin-top: 8px;
+    text-decoration: none;
+}
+
+.order-confirmation-card > .secondary-btn {
+    width: 100%;
+    justify-content: center;
+    margin-top: 8px;
+    border: 0;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 700;
 }
 
 .order-card label {

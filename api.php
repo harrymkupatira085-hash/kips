@@ -220,6 +220,32 @@ try {
         ]);
     }
 
+    if ($action === 'customer_order' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+        $orderId = filter_var($_GET['order'] ?? null, FILTER_VALIDATE_INT);
+        $token = $_GET['token'] ?? '';
+        if (!$orderId || !is_string($token) || !preg_match('/\A[a-f0-9]{64}\z/', $token)) {
+            api_response(['error' => 'This order link is invalid.'], 404);
+        }
+        $statement = restaurant_db()->prepare(
+            'SELECT id, total_price, payment_method, status, order_type,
+                    (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = orders.id AND status = \'completed\') AS paid_amount
+             FROM orders WHERE id = ? AND customer_token_hash = ?'
+        );
+        $statement->execute([$orderId, hash('sha256', $token)]);
+        $order = $statement->fetch();
+        if (!$order) {
+            api_response(['error' => 'This order link is invalid or has expired.'], 404);
+        }
+        $items = restaurant_db()->prepare(
+            'SELECT item_name, quantity, line_total FROM order_items WHERE order_id = ? ORDER BY id'
+        );
+        $items->execute([$orderId]);
+        $order['items'] = $items->fetchAll();
+        $order['can_choose_payment'] = in_array($order['status'], ['verified', 'preparing'], true)
+            && (int) $order['paid_amount'] < (int) $order['total_price'];
+        api_response(['order' => $order]);
+    }
+
     if ($action === 'dashboard' && $_SERVER['REQUEST_METHOD'] === 'GET') {
         api_require_permission('dashboard');
         $db = restaurant_db();
@@ -380,6 +406,49 @@ try {
         exit;
     }
 
+    if ($action === 'customer_order' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        if (!str_starts_with($_SERVER['CONTENT_TYPE'] ?? '', 'application/json')) {
+            api_response(['error' => 'Submit the payment choice using the order page.'], 415);
+        }
+        $orderId = filter_var($input['order_id'] ?? null, FILTER_VALIDATE_INT);
+        $token = $input['token'] ?? '';
+        $method = $input['payment_method'] ?? '';
+        $allowedMethods = ['Cash', 'Bank Card', 'Airtel Money', 'TNM Mpamba', 'Bank Transfer'];
+        if (!$orderId || !is_string($token) || !preg_match('/\A[a-f0-9]{64}\z/', $token)) {
+            api_response(['error' => 'This order link is invalid.'], 404);
+        }
+        if (!is_string($method) || !in_array($method, $allowedMethods, true)) {
+            api_response(['error' => 'Choose a valid payment method.'], 422);
+        }
+        $db = restaurant_db();
+        $statement = $db->prepare(
+            'UPDATE orders SET payment_method = ?
+             WHERE id = ? AND customer_token_hash = ? AND status IN (\'verified\', \'preparing\')
+               AND NOT EXISTS (SELECT 1 FROM payments WHERE payments.order_id = orders.id AND payments.status = \'completed\')'
+        );
+        $statement->execute([$method, $orderId, hash('sha256', $token)]);
+        if ($statement->rowCount() !== 1) {
+            $check = $db->prepare(
+                'SELECT payment_method, status,
+                        (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = orders.id AND status = \'completed\') AS paid_amount,
+                        total_price
+                 FROM orders WHERE id = ? AND customer_token_hash = ?'
+            );
+            $check->execute([$orderId, hash('sha256', $token)]);
+            $order = $check->fetch();
+            if (!$order) {
+                api_response(['error' => 'This order link is invalid or has expired.'], 404);
+            }
+            if (!in_array($order['status'], ['verified', 'preparing'], true) || (int) $order['paid_amount'] >= (int) $order['total_price']) {
+                api_response(['error' => 'Payment choices are closed for this order. Contact the restaurant team for help.'], 409);
+            }
+            if ($order['payment_method'] !== $method) {
+                api_response(['error' => 'The payment choice could not be saved. Refresh the order and try again.'], 409);
+            }
+        }
+        api_response(['message' => 'Payment preference saved. The restaurant team will confirm your payment after receiving it.']);
+    }
+
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         api_response(['error' => 'Unsupported request method.'], 405);
     }
@@ -449,7 +518,8 @@ try {
     }
 
     if ($action === 'create_order') {
-        if (restaurant_current_staff()) {
+        $staff = restaurant_current_staff();
+        if ($staff) {
             api_require_permission('orders');
         }
         $name = api_clean_text($input['customer_name'] ?? null, 100, 'Customer name');
@@ -461,10 +531,16 @@ try {
         if (!is_array($requestedItems) || count($requestedItems) < 1 || count($requestedItems) > 30) {
             api_response(['error' => 'Add between 1 and 30 food items.'], 422);
         }
-        $paymentMethod = $input['payment_method'] ?? '';
         $allowedMethods = ['Cash', 'Bank Card', 'Airtel Money', 'TNM Mpamba', 'Bank Transfer'];
-        if (!is_string($paymentMethod) || !in_array($paymentMethod, $allowedMethods, true)) {
-            api_response(['error' => 'Choose a valid payment method.'], 422);
+        $customerToken = null;
+        if ($staff) {
+            $paymentMethod = $input['payment_method'] ?? '';
+            if (!is_string($paymentMethod) || !in_array($paymentMethod, $allowedMethods, true)) {
+                api_response(['error' => 'Choose a valid payment method.'], 422);
+            }
+        } else {
+            $paymentMethod = 'Awaiting customer choice';
+            $customerToken = bin2hex(random_bytes(32));
         }
         $orderType = $input['order_type'] ?? 'delivery';
         if (!is_string($orderType) || !in_array($orderType, ['dine-in', 'takeaway', 'delivery'], true)) {
@@ -517,10 +593,14 @@ try {
         }
         $firstItem = $orderItems[0];
         $statement = $db->prepare(
-            'INSERT INTO orders (customer_name, customer_phone, item_name, quantity, unit_price, total_price, payment_method, order_type, table_number, customer_id, notes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO orders (customer_name, customer_phone, item_name, quantity, unit_price, total_price, payment_method, customer_token_hash, order_type, table_number, customer_id, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $statement->execute([$name, $phone, $firstItem['name'], $totalQuantity, $firstItem['price'], $total, $paymentMethod, $orderType, $tableNumber, $customerId, $notes]);
+        $statement->execute([
+            $name, $phone, $firstItem['name'], $totalQuantity, $firstItem['price'], $total,
+            $paymentMethod, $customerToken !== null ? hash('sha256', $customerToken) : null,
+            $orderType, $tableNumber, $customerId, $notes
+        ]);
         $orderId = (int) $db->lastInsertId();
         $lineInsert = $db->prepare('INSERT INTO order_items (order_id, menu_item_id, item_name, quantity, unit_price, line_total) VALUES (?, ?, ?, ?, ?, ?)');
         foreach ($orderItems as $orderItem) {
@@ -536,7 +616,12 @@ try {
         }
         $db->commit();
         api_audit('order_created', 'order', $orderId, $orderType . ' order submitted');
-        api_response(['order_id' => $orderId, 'total' => $total, 'message' => 'Order submitted and awaiting staff verification.'], 201);
+        api_response([
+            'order_id' => $orderId,
+            'total' => $total,
+            'tracking_token' => $customerToken,
+            'message' => 'Order submitted and awaiting staff verification.'
+        ], 201);
     }
 
     if ($action === 'create_reservation') {
@@ -947,7 +1032,7 @@ try {
     }
 
     if ($action === 'verify_order') {
-        api_require_permission('payments');
+        api_require_permission('orders');
         $id = filter_var($input['id'] ?? null, FILTER_VALIDATE_INT);
         if (!$id || $id < 1) {
             api_response(['error' => 'Invalid order.'], 422);
@@ -961,8 +1046,8 @@ try {
             api_response(['error' => 'This order is no longer waiting for verification.'], 409);
         }
         $db->commit();
-        api_audit('order_verified', 'order', (int) $id, 'Payment checked and order added to the serving queue');
-        api_response(['message' => 'Order verified and added to the manual serving queue.']);
+        api_audit('order_verified', 'order', (int) $id, 'Order confirmed with the guest and added to the serving queue');
+        api_response(['message' => 'Order confirmed and added to the manual serving queue.']);
     }
 
     if ($action === 'set_order_status') {

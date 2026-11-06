@@ -1,0 +1,9 @@
+.git
+.gitignore
+.env
+.env.*
+*.sqlite
+*.sqlite-*
+*-data
+uploads
+node_modules

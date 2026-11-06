@@ -20,6 +20,15 @@ KIPS is a PHP restaurant ordering and operations app with MySQL support, a local
 4. If `KIPS_DB_HOST` and `KIPS_DB_DSN` are unset, the app uses SQLite and stores its database outside `htdocs` in `C:\xampp\kips-data`. `KIPS_DATA_DIR` can select another private directory.
 5. Visit `admin.php` to create the first administrator. Then sign in and use **Team** to create individual manager, waiter, chef and cashier accounts. Staff passwords must be at least 12 characters.
 
+## Public deployment on Render
+
+1. Push the project, including its root `Dockerfile`, to the GitHub `main` branch.
+2. In Render, create a **Web Service** connected to this repository. Select the **Docker** runtime, leave **Root Directory** and **Docker Command** blank, and use `./Dockerfile` as the Dockerfile path. Do not enter a static-site publish directory.
+3. Add a persistent disk mounted at `/var/data`. The container sets `KIPS_DATA_DIR=/var/data` so the SQLite database and uploaded images are kept on that disk.
+4. Deploy, open the generated `onrender.com` address, and create the first administrator account.
+
+The included Dockerfile listens on Render's default web-service port 10000 and installs the PHP SQLite and mbstring extensions required by the app. Before taking real customer orders, configure HTTPS, backups, and your production security settings.
+
 ## Included operations
 
 - Role-aware staff accounts and server-side permission checks.
@@ -29,13 +38,13 @@ KIPS is a PHP restaurant ordering and operations app with MySQL support, a local
 - Suppliers, ingredient inventory, stock movements, recipe-based stock deduction, and low-stock notifications.
 - Optional JPEG, JFIF, PNG or WebP stock images (up to 10 MB) uploaded by inventory staff and stored in the private `KIPS_DATA_DIR` directory. Ensure the Apache/PHP account can write to this directory.
 - Menu food photos can also be uploaded from the administrator's device; JPEG, JFIF, PNG and WebP files up to 10 MB are stored in the same private data directory and served to the public menu through the application.
-- Customers see an on-screen order confirmation with a reference, total, selected payment method and order type. SMS delivery is not enabled; it requires a configured SMS gateway and credentials.
+- Customers receive an on-screen order reference and private status link. Staff manually contact and confirm the order; after staff approval, the customer uses the link to choose a payment preference. SMS delivery is not enabled and requires a configured SMS gateway.
 - Cash, bank card, Airtel Money, TNM Mpamba and bank-transfer payment recording, receipt views and transaction history.
 - Sales, recorded-expense and estimated recipe-cost reporting; staff audit history; administrator-only JSON data export.
 
 ### Payment processing
 
-This app records payments received by staff; it does not initiate or authorize card, Airtel Money, TNM Mpamba or bank transactions. Customers can select a preferred payment method, and a cashier records the payment only after confirming it through the restaurant's payment provider or terminal. To accept online payments, connect a real payment-provider API and configure its credentials/webhooks before advertising online checkout.
+This app records payments received by staff; it does not initiate or authorize card, Airtel Money, TNM Mpamba or bank transactions. Customers can select a preferred payment method after staff confirms the order, and a cashier records payment only after confirming it through the restaurant's payment provider or terminal. To accept online payments, connect a real payment-provider API and configure its credentials/webhooks before advertising online checkout.
 
 ### Production deployment
 

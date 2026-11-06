@@ -83,7 +83,7 @@ function restaurant_db(): PDO
     }
     $engine = $mysql ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : '';
     $db->exec("CREATE TABLE IF NOT EXISTS restaurant_schema_version (version INTEGER PRIMARY KEY){$engine}");
-    if ((int) $db->query('SELECT COALESCE(MAX(version), 0) FROM restaurant_schema_version')->fetchColumn() >= 4) {
+    if ((int) $db->query('SELECT COALESCE(MAX(version), 0) FROM restaurant_schema_version')->fetchColumn() >= 5) {
         return $db;
     }
 
@@ -103,6 +103,7 @@ function restaurant_db(): PDO
             id {$id}, customer_name VARCHAR(100) NOT NULL, customer_phone VARCHAR(30) NOT NULL,
             item_name VARCHAR(100) NOT NULL, quantity {$integer} NOT NULL, unit_price {$integer} NOT NULL,
             total_price {$integer} NOT NULL, payment_method VARCHAR(50) NOT NULL,
+            customer_token_hash CHAR(64) NULL,
             status VARCHAR(40) NOT NULL DEFAULT 'awaiting_verification', queue_position {$integer} NULL,
             order_type VARCHAR(30) NOT NULL DEFAULT 'delivery', table_number VARCHAR(20) NOT NULL DEFAULT '',
             customer_id {$integer} NULL, notes VARCHAR(2000) NOT NULL DEFAULT '', created_at {$timestamp}
@@ -201,6 +202,7 @@ function restaurant_db(): PDO
     $ensureColumn('orders', 'table_number', "VARCHAR(20) NOT NULL DEFAULT ''");
     $ensureColumn('orders', 'customer_id', 'INTEGER NULL');
     $ensureColumn('orders', 'notes', "VARCHAR(2000) NOT NULL DEFAULT ''");
+    $ensureColumn('orders', 'customer_token_hash', 'CHAR(64) NULL');
     $ensureColumn('ingredients', 'image_path', "VARCHAR(80) NOT NULL DEFAULT ''");
     $indexes = [
         ['orders', 'orders_queue_idx', 'status, queue_position, id'],
@@ -251,7 +253,7 @@ function restaurant_db(): PDO
             $insert->execute(['T' . $number, $number <= 4 ? 2 : 4]);
         }
     }
-    $db->exec('INSERT INTO restaurant_schema_version (version) VALUES (4)');
+    $db->exec('INSERT INTO restaurant_schema_version (version) VALUES (5)');
 
     return $db;
 }

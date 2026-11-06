@@ -350,8 +350,8 @@ function drawChart(canvas, values) {
 
 function renderOrders() {
     const orders = dashboardData.orders;
-    appContent.innerHTML = `<div class="page-heading"><div><span class="app-eyebrow">SERVICE &amp; KITCHEN</span><h1>Orders</h1><p>Follow every ticket from payment check to the table.</p></div><div class="heading-actions"><button id="newOrderBtn" class="app-primary">＋ New order</button></div></div>
-    <div class="order-summary-strip"><span><i class="order-key key-pending"></i>Awaiting verification <b>${orders.filter((order) => order.status === 'awaiting_verification').length}</b></span><span><i class="order-key key-queue"></i>In queue <b>${orders.filter((order) => order.status === 'verified').length}</b></span><span><i class="order-key key-kitchen"></i>Preparing <b>${orders.filter((order) => order.status === 'preparing').length}</b></span></div>
+    appContent.innerHTML = `<div class="page-heading"><div><span class="app-eyebrow">SERVICE &amp; KITCHEN</span><h1>Orders</h1><p>Contact the guest to confirm the order; approve it to unlock payment choice on their private link.</p></div><div class="heading-actions"><button id="newOrderBtn" class="app-primary">＋ New order</button></div></div>
+    <div class="order-summary-strip"><span><i class="order-key key-pending"></i>Awaiting confirmation <b>${orders.filter((order) => order.status === 'awaiting_verification').length}</b></span><span><i class="order-key key-queue"></i>In queue <b>${orders.filter((order) => order.status === 'verified').length}</b></span><span><i class="order-key key-kitchen"></i>Preparing <b>${orders.filter((order) => order.status === 'preparing').length}</b></span></div>
     <div class="order-board" id="orderBoard">${orders.length ? orders.map((order) => orderCard(order, orders)).join('') : '<div class="app-panel"><p class="empty-state">No orders yet. Create a new ticket to get started.</p></div>'}</div>`;
 }
 
@@ -359,9 +359,11 @@ function orderCard(order, orders) {
     const queue = orders.filter((item) => item.status === 'verified');
     const firstVerifiedId = queue.length ? Number(queue[0].id) : null;
     const status = order.status;
+    const paymentMethods = ['Cash', 'Bank Card', 'Airtel Money', 'TNM Mpamba', 'Bank Transfer'];
+    const statusLabel = status === 'awaiting_verification' ? 'awaiting confirmation' : status.replaceAll('_', ' ');
     let actions = '';
     if (status === 'awaiting_verification') {
-        actions = `${canAccess('payments') ? `<button class="mini-primary" data-action="verify" data-id="${order.id}">Verify &amp; queue</button>` : ''}<button class="mini-quiet" data-action="cancel" data-id="${order.id}" data-current-status="awaiting_verification">Cancel</button>`;
+        actions = `${canAccess('orders') ? `<button class="mini-primary" data-action="verify" data-id="${order.id}">Confirm &amp; queue</button>` : ''}<button class="mini-quiet" data-action="cancel" data-id="${order.id}" data-current-status="awaiting_verification">Cancel</button>`;
     } else if (status === 'verified') {
         const index = queue.findIndex((item) => Number(item.id) === Number(order.id));
         actions = `<button class="mini-quiet" data-action="up" data-id="${order.id}" ${index === 0 ? 'disabled' : ''}>↑ Move up</button><button class="mini-quiet" data-action="down" data-id="${order.id}" ${index === queue.length - 1 ? 'disabled' : ''}>↓ Move down</button>${canAccess('orders') ? `<button class="mini-primary" data-action="preparing" data-current-status="verified" data-id="${order.id}" ${Number(order.id) !== firstVerifiedId ? 'disabled' : ''}>${Number(order.id) === firstVerifiedId ? 'Start next' : 'Waiting'}</button>` : ''}`;
@@ -369,7 +371,7 @@ function orderCard(order, orders) {
         actions = canAccess('orders') ? `<button class="mini-primary" data-action="complete" data-current-status="preparing" data-id="${order.id}">Complete order</button>` : '<span class="app-muted">In preparation</span>';
     }
     if (canAccess('payments') && Number(order.paid_amount) < Number(order.total_price)) {
-        actions += `<select class="payment-method-select" aria-label="Payment method for order ${order.id}"><option>Cash</option><option>Bank Card</option><option>Airtel Money</option><option>TNM Mpamba</option><option>Bank Transfer</option></select><button class="mini-quiet" data-action="pay" data-id="${order.id}">Record payment</button>`;
+        actions += `<select class="payment-method-select" aria-label="Payment method for order ${order.id}">${paymentMethods.map((method) => `<option ${order.payment_method === method ? 'selected' : ''}>${method}</option>`).join('')}</select><button class="mini-quiet" data-action="pay" data-id="${order.id}">Record payment</button>`;
     } else if (Number(order.paid_amount) >= Number(order.total_price)) {
         actions += `<button class="mini-quiet" data-action="receipt" data-id="${order.id}">View receipt</button>`;
     }
@@ -378,7 +380,7 @@ function orderCard(order, orders) {
         ? order.lines.map((item) => `${item.item_name} × ${item.quantity}`).join(', ')
         : `${order.item_name} × ${order.quantity}`;
     return `<article class="ticket-card">
-        <div class="ticket-top"><span class="ticket-id">#${order.id} <i class="order-type-dot type-${escapeHtml(order.order_type)}"></i>${escapeHtml(order.order_type)}${order.table_number ? ` · ${escapeHtml(order.table_number)}` : ''}</span><span class="status-pill status-${escapeHtml(status)}">${escapeHtml(status.replaceAll('_', ' '))}${status === 'verified' && order.queue_position ? ` · #${order.queue_position}` : ''}</span></div>
+        <div class="ticket-top"><span class="ticket-id">#${order.id} <i class="order-type-dot type-${escapeHtml(order.order_type)}"></i>${escapeHtml(order.order_type)}${order.table_number ? ` · ${escapeHtml(order.table_number)}` : ''}</span><span class="status-pill status-${escapeHtml(status)}">${escapeHtml(statusLabel)}${status === 'verified' && order.queue_position ? ` · #${order.queue_position}` : ''}</span></div>
         <div class="ticket-customer"><span class="order-initial">${escapeHtml(order.customer_name.charAt(0).toUpperCase())}</span><span><strong>${escapeHtml(order.customer_name)}</strong><small>${escapeHtml(order.customer_phone)}</small></span></div>
         <div class="ticket-food"><strong>${escapeHtml(itemSummary)}</strong>${order.notes ? `<p>${escapeHtml(order.notes)}</p>` : ''}</div>
         <div class="ticket-total"><span>${formatPrice(order.total_price)}</span><small>${paymentState} · ${escapeHtml(order.payment_method)}</small></div>

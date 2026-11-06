@@ -15,13 +15,11 @@ $features = [
     ['number' => '03', 'title' => 'Family favorites', 'text' => 'From quick bites to hearty plates, we serve meals everyone loves.']
 ];
 
-$paymentMethods = [
-    ['name' => 'Cash', 'number' => 'Pay at the restaurant'],
-    ['name' => 'Bank Card', 'number' => 'Visa or Mastercard'],
-    ['name' => 'Airtel Money', 'number' => 'Mobile money'],
-    ['name' => 'TNM Mpamba', 'number' => 'Mobile money'],
-    ['name' => 'Bank Transfer', 'number' => 'Pay from your bank']
-];
+$page = $_GET['page'] ?? 'home';
+$validPages = ['home', 'menu', 'order', 'reserve', 'about'];
+if (!is_string($page) || !in_array($page, $validPages, true)) {
+    $page = 'home';
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -29,6 +27,7 @@ $paymentMethods = [
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="<?= htmlspecialchars(restaurant_csrf_token(), ENT_QUOTES, 'UTF-8') ?>">
+    <meta name="referrer" content="no-referrer">
     <title>KIPS RESTAURANT</title>
     <meta name="description" content="Fresh, tasty meals and fast delivery from KIPS Restaurant.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -39,25 +38,25 @@ $paymentMethods = [
 <body>
     <header class="topbar">
         <div class="container nav">
-            <div class="brand" aria-label="KIPS Restaurant home">
+            <a class="brand" href="index.php" aria-label="KIPS Restaurant home">
                 <span class="brand-mark">K</span>
                 <span><?= htmlspecialchars($restaurantName) ?></span>
-            </div>
+            </a>
 
             <nav class="main-nav" aria-label="Main navigation">
-                <a href="#menu">Menu</a>
-                <a href="#order">Order</a>
-                <a href="#reserve">Reserve</a>
-                <a href="#about">About</a>
+                <a href="index.php?page=menu" <?= $page === 'menu' ? 'aria-current="page"' : '' ?>>Menu</a>
+                <a href="index.php?page=reserve" <?= $page === 'reserve' ? 'aria-current="page"' : '' ?>>Reserve</a>
+                <a href="index.php?page=about" <?= $page === 'about' ? 'aria-current="page"' : '' ?>>About</a>
             </nav>
 
             <div class="header-actions">
-                <a href="#order" class="nav-button">Order now</a>
+                <a href="index.php?page=order" class="nav-button">Order now</a>
             </div>
         </div>
     </header>
 
     <main>
+        <?php if ($page === 'home'): ?>
         <section class="hero">
             <div class="container hero-inner">
                 <div class="hero-copy">
@@ -69,8 +68,8 @@ $paymentMethods = [
                     </p>
 
                     <div class="cta-row">
-                        <a href="#menu" class="primary-btn">View menu</a>
-                        <a href="#about" class="secondary-btn">Why choose us</a>
+                        <a href="index.php?page=menu" class="primary-btn">View menu</a>
+                        <a href="index.php?page=about" class="secondary-btn">Why choose us</a>
                     </div>
 
                     <div class="stats-row">
@@ -103,7 +102,9 @@ $paymentMethods = [
                 </div>
             </div>
         </section>
+        <?php endif; ?>
 
+        <?php if ($page === 'menu'): ?>
         <section id="menu" class="menu-section">
             <div class="container">
                 <div class="section-heading">
@@ -137,7 +138,9 @@ $paymentMethods = [
                 </div>
             </div>
         </section>
+        <?php endif; ?>
 
+        <?php if ($page === 'order'): ?>
         <section id="order" class="order-section">
             <div class="container order-wrap">
                 <div class="order-card">
@@ -159,51 +162,16 @@ $paymentMethods = [
                         <strong id="totalPrice">MK <?= $menuItems ? number_format((float) $menuItems[0]['price'], 0) : '0' ?></strong>
                     </div>
 
-                    <div class="payment-section">
-                        <p class="payment-heading">Choose payment method</p>
-                        <div class="payment-grid">
-                            <?php foreach ($paymentMethods as $method): ?>
-                                <label class="payment-option">
-                                    <input type="radio" name="paymentMethod" value="<?= htmlspecialchars($method['name']) ?>" <?= $method['name'] === 'Airtel Money' ? 'checked' : '' ?>>
-                                    <span class="payment-brand payment-brand-<?= strtolower(str_replace(' ', '-', $method['name'])) ?>" aria-hidden="true">
-                                        <?php if ($method['name'] === 'Bank Card'): ?>
-                                            <svg class="card-network-logo" viewBox="0 0 94 32" role="img" aria-label="Visa and Mastercard">
-                                                <circle cx="16" cy="16" r="13" fill="#eb001b"></circle>
-                                                <circle cx="32" cy="16" r="13" fill="#f79e1b" fill-opacity=".92"></circle>
-                                                <text x="49" y="21" fill="#1434cb" font-family="Arial,sans-serif" font-size="16" font-style="italic" font-weight="800">VISA</text>
-                                            </svg>
-                                        <?php elseif ($method['name'] === 'Airtel Money'): ?>
-                                            <span class="airtel-wordmark"><i></i>airtel<span> money</span></span>
-                                        <?php elseif ($method['name'] === 'TNM Mpamba'): ?>
-                                            <span class="tnm-wordmark"><b>TNM</b><span>Mpamba</span></span>
-                                        <?php elseif ($method['name'] === 'Cash'): ?>
-                                            <svg viewBox="0 0 42 32" focusable="false">
-                                                <rect x="2" y="4" width="38" height="24" rx="5" fill="#e2f2e7"></rect>
-                                                <path d="M7 10c2.4 0 4-1.6 4-3h20c0 1.4 1.6 3 4 3v12c-2.4 0-4 1.6-4 3H11c0-1.4-1.6-3-4-3z" fill="none" stroke="#27834d" stroke-width="1.7"></path>
-                                                <circle cx="21" cy="16" r="5" fill="#27834d"></circle>
-                                                <text x="21" y="19" fill="#fff" font-family="Arial,sans-serif" font-size="8" font-weight="700" text-anchor="middle">MK</text>
-                                            </svg>
-                                        <?php else: ?>
-                                            <svg viewBox="0 0 42 32" focusable="false">
-                                                <path d="M4 12 21 3l17 9v3H4zm3 5h4v9H7zm8 0h4v9h-4zm8 0h4v9h-4zm8 0h4v9h-4zM4 28h34v2H4z" fill="#3471a5"></path>
-                                            </svg>
-                                        <?php endif; ?>
-                                    </span>
-                                    <span class="payment-copy">
-                                        <strong><?= htmlspecialchars($method['name']) ?></strong>
-                                        <small><?= htmlspecialchars($method['number']) ?></small>
-                                    </span>
-                                </label>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
+                    <p class="payment-choice-note">Choose your payment method after our team confirms your order.</p>
 
                     <button id="orderBtn" type="button" <?= !$menuItems ? 'disabled' : '' ?>>Place order</button>
                     <p id="orderMessage"><?= $menuItems ? 'Your food is ready to be ordered.' : 'No food is currently available to order.' ?></p>
                 </div>
             </div>
         </section>
+        <?php endif; ?>
 
+        <?php if ($page === 'reserve'): ?>
         <section id="reserve" class="reservation-section">
             <div class="container reservation-wrap">
                 <div class="reservation-intro">
@@ -223,7 +191,9 @@ $paymentMethods = [
                 </form>
             </div>
         </section>
+        <?php endif; ?>
 
+        <?php if ($page === 'about'): ?>
         <section id="about" class="about-section">
             <div class="container about-grid">
                 <div>
@@ -244,14 +214,47 @@ $paymentMethods = [
                 </div>
             </div>
         </section>
+        <?php endif; ?>
+    </main>
+
+    <main id="customerOrderPage" hidden>
+        <section class="order-section">
+            <div class="container order-wrap">
+                <div class="order-card customer-order-card">
+                    <p class="eyebrow">PRIVATE ORDER LINK</p>
+                    <h1>Order <span id="customerOrderNumber"></span></h1>
+                    <p id="customerOrderStatus" role="status" aria-live="polite">Loading your order…</p>
+                    <div id="customerOrderSummary" class="customer-order-summary" hidden>
+                        <div><span>Items</span><strong id="customerOrderItems"></strong></div>
+                        <div><span>Total</span><strong id="customerOrderTotal"></strong></div>
+                        <div><span>Order type</span><strong id="customerOrderType"></strong></div>
+                        <div><span>Payment preference</span><strong id="customerOrderMethod"></strong></div>
+                    </div>
+                    <div id="customerPaymentChoice" class="customer-payment-choice" hidden>
+                        <label for="customerPaymentMethod">Choose your preferred payment method</label>
+                        <select id="customerPaymentMethod">
+                            <option>Cash</option>
+                            <option>Bank Card</option>
+                            <option>Airtel Money</option>
+                            <option>TNM Mpamba</option>
+                            <option>Bank Transfer</option>
+                        </select>
+                        <button id="saveCustomerPayment" type="button" class="primary-btn">Save payment preference</button>
+                        <p>Saving a preference does not send money. Staff will confirm payment after receiving it.</p>
+                    </div>
+                    <button id="refreshCustomerOrder" type="button" class="secondary-btn">Refresh order status</button>
+                    <p><a href="index.php">Return to KIPS Restaurant</a></p>
+                </div>
+            </div>
+        </section>
     </main>
 
     <div id="paymentModal" class="payment-modal" aria-hidden="true">
         <div class="payment-modal-content" role="dialog" aria-modal="true" aria-labelledby="paymentModalTitle">
             <button id="closeModal" class="modal-close" type="button" aria-label="Close payment modal">×</button>
 
-            <p class="eyebrow">Complete payment</p>
-            <h3 id="paymentModalTitle">Pay your bill</h3>
+            <p class="eyebrow">Place your order</p>
+            <h3 id="paymentModalTitle">Your order</h3>
 
             <div class="modal-summary">
                 <div>
@@ -261,10 +264,6 @@ $paymentMethods = [
                 <div>
                     <span>Total</span>
                     <strong id="modalTotalPrice">MK 8,900</strong>
-                </div>
-                <div>
-                    <span>Method</span>
-                    <strong id="modalPaymentMethod">Airtel Money</strong>
                 </div>
             </div>
 
@@ -290,7 +289,7 @@ $paymentMethods = [
             <label for="orderNotes">Order notes <span>(optional)</span></label>
             <input id="orderNotes" type="text" maxlength="1000" placeholder="Delivery directions or preferences">
 
-            <button id="confirmPaymentBtn" type="button">Submit order</button>
+            <button id="confirmPaymentBtn" type="button">Send order request</button>
         </div>
     </div>
 
@@ -304,10 +303,12 @@ $paymentMethods = [
             <div class="confirmation-summary">
                 <div><span>Order reference</span><strong id="confirmationOrderId"></strong></div>
                 <div><span>Total</span><strong id="confirmationTotal"></strong></div>
-                <div><span>Payment method</span><strong id="confirmationPayment"></strong></div>
+                <div><span>Next step</span><strong>Wait for staff confirmation</strong></div>
                 <div><span>Order type</span><strong id="confirmationType"></strong></div>
             </div>
-            <p class="confirmation-note">Keep your order reference. This confirmation is shown on this page; no SMS is sent.</p>
+            <p id="confirmationOrderMessage" class="confirmation-note">Our team will contact you manually. After they confirm your order, open your private link to choose a payment method.</p>
+            <a id="confirmationOrderLink" class="primary-btn confirmation-order-link" href="#">Open private order link</a>
+            <button id="copyOrderLink" class="secondary-btn" type="button">Copy order link</button>
             <button id="doneOrderConfirmation" class="primary-btn" type="button">Done</button>
         </section>
     </div>
