@@ -250,9 +250,9 @@ try {
         api_require_permission('dashboard');
         $db = restaurant_db();
         $today = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? 'CURDATE()' : "DATE('now', 'localtime')";
-        $weekStart = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql'
-            ? 'DATE_SUB(CURDATE(), INTERVAL 6 DAY)'
-            : "DATE('now', '-6 day', 'localtime')";
+        $chartStart = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql'
+            ? 'DATE_SUB(CURDATE(), INTERVAL 29 DAY)'
+            : "DATE('now', '-29 day', 'localtime')";
         $canViewReports = restaurant_staff_can('reports');
         $summary = [
             'sales_today' => $canViewReports
@@ -274,7 +274,7 @@ try {
         ];
         $sales = $canViewReports ? $db->query(
             "SELECT DATE(created_at) AS day, COALESCE(SUM(amount), 0) AS total
-             FROM payments WHERE status = 'completed' AND DATE(created_at) >= {$weekStart}
+             FROM payments WHERE status = 'completed' AND DATE(created_at) >= {$chartStart}
              GROUP BY DATE(created_at) ORDER BY DATE(created_at)"
         )->fetchAll() : [];
         $orders = $db->query(

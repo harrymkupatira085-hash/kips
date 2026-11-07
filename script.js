@@ -19,6 +19,30 @@ const orderType = document.getElementById('orderType');
 const orderTable = document.getElementById('orderTable');
 const orderTableLabel = document.getElementById('orderTableLabel');
 const orderNotes = document.getElementById('orderNotes');
+const mobileNavToggle = document.querySelector('.mobile-nav-toggle');
+const mainNav = document.querySelector('.main-nav');
+
+function closeMobileNav() {
+    if (!mobileNavToggle || !mainNav) return;
+    mobileNavToggle.setAttribute('aria-expanded', 'false');
+    mobileNavToggle.setAttribute('aria-label', 'Open navigation');
+    mainNav.classList.remove('is-open');
+}
+
+mobileNavToggle?.addEventListener('click', () => {
+    const isExpanded = mobileNavToggle.getAttribute('aria-expanded') === 'true';
+    mobileNavToggle.setAttribute('aria-expanded', String(!isExpanded));
+    mobileNavToggle.setAttribute('aria-label', isExpanded ? 'Open navigation' : 'Close navigation');
+    mainNav?.classList.toggle('is-open', !isExpanded);
+});
+
+mainNav?.querySelectorAll('a').forEach((link) => {
+    link.addEventListener('click', closeMobileNav);
+});
+
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeMobileNav();
+});
 
 function formatKwacha(value) {
     return `MK ${Number(value).toLocaleString('en-US')}`;

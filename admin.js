@@ -57,6 +57,7 @@ let dashboardData = null;
 let activeView = 'dashboard';
 let moduleRecords = {};
 let toastTimer;
+let overviewSalesRange = 7;
 
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (character) => ({
@@ -71,6 +72,32 @@ function formatPrice(value) {
 function canAccess(view) {
     const permissions = rolePermissions[currentStaff?.role] || [];
     return permissions.includes('*') || permissions.includes(view);
+}
+
+function dashboardIcon(name) {
+    const icons = {
+        sales: '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+        orders: '<path d="M8 3h8l4 4v14H4V3z"/><path d="M8 11h8M8 15h8M8 7h4"/>',
+        calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01"/>',
+        inventory: '<path d="m12 3 9 5-9 5-9-5 9-5z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5M12 13v8"/>',
+        plus: '<path d="M12 5v14M5 12h14"/>',
+        chart: '<path d="M3 3v18h18"/><path d="M8 16v-4M13 16V7M18 16v-7"/>',
+        arrowUp: '<path d="M7 17 17 7M7 7h10v10"/>',
+        home: '<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-6v-7h-4v7H4a1 1 0 0 1-1-1z"/>',
+        menu: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+        users: '<path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M20 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+        table: '<rect x="3" y="4" width="18" height="7" rx="2"/><path d="M5 11v9M19 11v9M9 15h6"/>',
+        truck: '<path d="M3 6h11v12H3zM14 10h4l3 3v5h-7z"/><circle cx="7.5" cy="18" r="1.5"/><circle cx="17.5" cy="18" r="1.5"/>',
+        wallet: '<rect x="3" y="5" width="18" height="15" rx="2"/><path d="M3 9h18M16 14h2"/>',
+        report: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+        activity: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+        external: '<path d="M14 3h7v7M10 14 21 3"/><path d="M19 13v7H4V5h7"/>',
+        bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>',
+        refresh: '<path d="M20 7v5h-5"/><path d="M4 17v-5h5"/><path d="M5.5 9a7 7 0 0 1 11.6-2L20 12M4 12l2.9 5a7 7 0 0 0 11.6-2"/>',
+        logout: '<path d="M10 17l5-5-5-5M15 12H3"/><path d="M12 3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7"/>',
+        close: '<path d="m18 6-12 12M6 6l12 12"/>'
+    };
+    return `<svg class="dashboard-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.menu}</svg>`;
 }
 
 async function request(action, payload = {}, method = 'POST') {
@@ -182,18 +209,18 @@ function renderOverview() {
     const latestOrders = dashboardData.orders.slice(0, 5);
     const grossVolume = Number(summary.gross_volume || 0);
     appContent.innerHTML = `<div class="page-heading overview-page-heading">
-        <div><span class="app-eyebrow">KIPS RESTAURANT</span><h1>Overview</h1>
-        <p>${greeting}, ${escapeHtml(currentStaff.name || currentStaff.username)}. Here’s your restaurant at a glance.</p></div>
-        <div class="heading-actions"><span class="overview-period"><span></span>Last 7 days</span><button class="app-secondary" data-go="orders">View orders <span>→</span></button></div>
+        <div><span class="app-eyebrow">RESTAURANT OPERATIONS</span><h1>${greeting}, ${escapeHtml(currentStaff.name || currentStaff.username)}</h1>
+        <p>Here’s what’s happening across your restaurant today.</p></div>
+        <div class="heading-actions overview-heading-actions"><div class="overview-range-switch" role="group" aria-label="Sales chart date range"><button type="button" data-chart-range="7" aria-pressed="${overviewSalesRange === 7}">7 days</button><button type="button" data-chart-range="30" aria-pressed="${overviewSalesRange === 30}">30 days</button></div><button class="app-primary overview-create-button" id="overviewNewOrderBtn">${dashboardIcon('plus')}<span>New order</span></button></div>
     </div>
     ${canAccess('reports') ? `<div class="overview-analytics-grid">
         <section class="app-panel payments-analytics-panel">
-            <div class="panel-heading"><div><span class="app-eyebrow">PERFORMANCE</span><h2>Payments</h2><p>Completed sales · last 7 days</p></div><span class="panel-badge">Last 7 days</span></div>
-            <div class="overview-chart-wrap"><canvas id="salesChart" role="img" aria-label="Daily completed sales over the past seven days"></canvas></div>
-            <div class="chart-footnote"><span><i></i>Completed sales</span><span>${Number(summary.completed_payments || 0).toLocaleString()} successful payments</span></div>
+            <div class="panel-heading"><div><span class="app-eyebrow">REVENUE OVERVIEW</span><h2>Sales performance</h2><p>Completed payments by day</p></div><span class="panel-badge"><i></i>Live data</span></div>
+            <div class="overview-chart-wrap"><canvas id="salesChart" role="img" aria-label="Daily completed sales for the selected date range"></canvas><div class="chart-tooltip" id="salesChartTooltip" role="status" hidden></div></div>
+            <div class="chart-footnote"><span><i></i>Completed sales</span><span>${Number(summary.completed_payments || 0).toLocaleString()} successful payments · all time</span></div>
         </section>
         <aside class="app-panel gross-volume-panel">
-            <div class="panel-heading"><div><span class="app-eyebrow">ALL-TIME</span><h2>Gross volume</h2></div><span class="volume-mark">↗</span></div>
+            <div class="panel-heading"><div><span class="app-eyebrow">ALL-TIME TOTAL</span><h2>Gross volume</h2></div><span class="volume-mark">${dashboardIcon('arrowUp')}</span></div>
             <strong class="gross-volume-value">${formatPrice(grossVolume)}</strong>
             <p class="gross-volume-caption">Total recorded completed payments</p>
             <div class="volume-divider"></div>
@@ -205,75 +232,111 @@ function renderOverview() {
         </aside>
     </div>` : ''}
     <div class="metric-grid overview-metrics">
-        ${canAccess('reports') ? `<article class="metric-card"><span class="metric-icon metric-orange">↗</span><span class="metric-label">Sales today</span><strong>${formatPrice(summary.sales_today)}</strong><small>Completed payments</small></article>` : ''}
-        <article class="metric-card"><span class="metric-icon metric-green">▤</span><span class="metric-label">Orders today</span><strong>${Number(summary.orders_today).toLocaleString()}</strong><small>${summary.open_orders} currently in progress</small></article>
-        <article class="metric-card"><span class="metric-icon metric-violet">▦</span><span class="metric-label">Reservations today</span><strong>${Number(summary.reservations_today).toLocaleString()}</strong><small>Pending and confirmed</small></article>
-        <article class="metric-card ${Number(summary.low_stock) ? 'metric-warning' : ''}"><span class="metric-icon metric-amber">▣</span><span class="metric-label">Low-stock items</span><strong>${Number(summary.low_stock).toLocaleString()}</strong><small>${Number(summary.low_stock) ? 'Needs your attention' : 'Inventory is looking good'}</small></article>
+        ${canAccess('reports') ? `<article class="metric-card"><span class="metric-icon metric-orange">${dashboardIcon('sales')}</span><span class="metric-label">Sales today</span><strong>${formatPrice(summary.sales_today)}</strong><small>Completed payments</small></article>` : ''}
+        <article class="metric-card"><span class="metric-icon metric-green">${dashboardIcon('orders')}</span><span class="metric-label">Orders today</span><strong>${Number(summary.orders_today).toLocaleString()}</strong><small>${summary.open_orders} currently in progress</small></article>
+        <article class="metric-card"><span class="metric-icon metric-violet">${dashboardIcon('calendar')}</span><span class="metric-label">Reservations today</span><strong>${Number(summary.reservations_today).toLocaleString()}</strong><small>Pending and confirmed</small></article>
+        <article class="metric-card ${Number(summary.low_stock) ? 'metric-warning' : ''}"><span class="metric-icon metric-amber">${dashboardIcon('inventory')}</span><span class="metric-label">Low-stock items</span><strong>${Number(summary.low_stock).toLocaleString()}</strong><small>${Number(summary.low_stock) ? 'Needs your attention' : 'Inventory is looking good'}</small></article>
     </div>
     <div class="overview-support-grid">
         <section class="app-panel"><div class="panel-heading"><div><h2>Stock watch</h2><p>Ingredients at or below reorder level</p></div><button class="text-action" data-go="inventory">Inventory →</button></div><div class="stock-watch">${dashboardData.low_stock_items.length ? dashboardData.low_stock_items.map((item) => `<div class="stock-line"><span class="stock-dot"></span><span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.supplier_name || 'No supplier')}</small></span><b>${escapeHtml(item.stock_quantity)} ${escapeHtml(item.unit)}</b></div>`).join('') : '<p class="empty-state">No low-stock alerts. Nice work!</p>'}</div></section>
         <section class="app-panel recent-panel"><div class="panel-heading"><div><h2>Recent orders</h2><p>Your latest service activity</p></div><button class="text-action" data-go="orders">All orders →</button></div><div class="recent-orders">${latestOrders.length ? latestOrders.map((order) => `<div class="recent-order"><span class="order-initial">${escapeHtml(order.customer_name.charAt(0).toUpperCase())}</span><span class="recent-order-main"><strong>${escapeHtml(order.customer_name)}</strong><small>#${order.id} · ${escapeHtml(order.order_type)}</small></span><span class="recent-order-total">${formatPrice(order.total_price)}</span><span class="status-pill status-${escapeHtml(order.status)}">${escapeHtml(order.status.replaceAll('_', ' '))}</span></div>`).join('') : '<p class="empty-state">Your first order will appear here.</p>'}</div></section>
         <section class="app-panel quick-panel"><div class="panel-heading"><div><h2>Quick access</h2><p>Jump into your day</p></div></div><div class="quick-actions">
-            ${canAccess('orders') ? '<button data-go="orders"><span>＋</span><b>Start an order</b><small>Open a new ticket</small></button>' : ''}
-            ${canAccess('reservations') ? '<button data-go="reservations"><span>▦</span><b>Reservations</b><small>Manage guest bookings</small></button>' : ''}
-            ${canAccess('inventory') ? '<button data-go="inventory"><span>▣</span><b>Check inventory</b><small>Track ingredients</small></button>' : ''}
-            ${canAccess('reports') ? '<button data-go="reports"><span>▥</span><b>View reports</b><small>Understand your numbers</small></button>' : ''}
+            ${canAccess('orders') ? `<button data-go="orders"><span>${dashboardIcon('plus')}</span><b>Start an order</b><small>Open a new ticket</small></button>` : ''}
+            ${canAccess('reservations') ? `<button data-go="reservations"><span>${dashboardIcon('calendar')}</span><b>Reservations</b><small>Manage guest bookings</small></button>` : ''}
+            ${canAccess('inventory') ? `<button data-go="inventory"><span>${dashboardIcon('inventory')}</span><b>Check inventory</b><small>Track ingredients</small></button>` : ''}
+            ${canAccess('reports') ? `<button data-go="reports"><span>${dashboardIcon('chart')}</span><b>View reports</b><small>Understand your numbers</small></button>` : ''}
         </div></section>
     </div>`;
-    drawOverviewChart(document.getElementById('salesChart'), dashboardData.sales);
+    drawOverviewChart(document.getElementById('salesChart'), dashboardData.sales, overviewSalesRange);
 }
 
-function drawOverviewChart(canvas, values) {
+function drawOverviewChart(canvas, values, range = overviewSalesRange) {
     if (!canvas) return;
     const context = canvas.getContext('2d');
     const ratio = window.devicePixelRatio || 1;
     const width = canvas.clientWidth || 700;
-    const height = canvas.clientHeight || 300;
+    const height = canvas.clientHeight || 310;
     canvas.width = width * ratio;
     canvas.height = height * ratio;
     context.scale(ratio, ratio);
-    const padding = { top: 20, right: 16, bottom: 34, left: 56 };
+    const padding = { top: 18, right: 14, bottom: 38, left: 58 };
     const graphWidth = width - padding.left - padding.right;
     const graphHeight = height - padding.top - padding.bottom;
     const byDay = new Map(values.map((item) => [String(item.day).slice(0, 10), Number(item.total)]));
-    const days = Array.from({ length: 7 }, (_, index) => {
+    const days = Array.from({ length: range }, (_, index) => {
         const date = new Date();
-        date.setDate(date.getDate() - (6 - index));
+        date.setDate(date.getDate() - (range - 1 - index));
         const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-        return { label: date.toLocaleDateString([], { weekday: 'short' }), value: byDay.get(key) || 0 };
+        return {
+            key,
+            date,
+            label: range === 7
+                ? date.toLocaleDateString([], { weekday: 'short' })
+                : (index % 5 === 0 || index === range - 1 ? date.toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''),
+            value: byDay.get(key) || 0
+        };
     });
     const max = Math.max(1000, ...days.map((day) => day.value));
     const step = graphWidth / days.length;
+    const tooltip = canvas.parentElement.querySelector('.chart-tooltip');
+    const bars = [];
     context.clearRect(0, 0, width, height);
-    context.font = '12px "DM Sans", sans-serif';
+    context.font = '11px "DM Sans", sans-serif';
     context.textBaseline = 'middle';
-    for (let line = 0; line <= 3; line += 1) {
-        const y = padding.top + graphHeight * line / 3;
-        context.strokeStyle = '#edf1f5';
+    for (let line = 0; line <= 4; line += 1) {
+        const y = padding.top + graphHeight * line / 4;
+        context.strokeStyle = '#edf1ee';
+        context.lineWidth = 1;
         context.beginPath();
         context.moveTo(padding.left, y);
         context.lineTo(width - padding.right, y);
         context.stroke();
-        context.fillStyle = '#8995a5';
+        context.fillStyle = '#9aa49f';
         context.textAlign = 'right';
-        context.fillText(max < 1000 ? '0' : `${Math.round(max * (1 - line / 3) / 1000)}k`, padding.left - 10, y);
+        const amount = max * (1 - line / 4);
+        context.fillText(amount >= 1000 ? `${(amount / 1000).toFixed(amount >= 10000 ? 0 : 1).replace('.0', '')}k` : String(Math.round(amount)), padding.left - 11, y);
     }
     days.forEach((day, index) => {
-        const barWidth = Math.min(42, step * .48);
-        const barHeight = Math.max(day.value ? 3 : 0, graphHeight * day.value / max);
+        const barWidth = Math.min(range === 7 ? 35 : 12, step * (range === 7 ? .48 : .62));
+        const barHeight = Math.max(day.value ? 4 : 0, graphHeight * day.value / max);
         const x = padding.left + step * index + (step - barWidth) / 2;
         const y = padding.top + graphHeight - barHeight;
-        const gradient = context.createLinearGradient(0, y, 0, y + barHeight);
-        gradient.addColorStop(0, '#3485f6');
-        gradient.addColorStop(1, '#2853d9');
-        context.fillStyle = day.value ? gradient : '#eef3fa';
-        context.beginPath();
-        context.roundRect(x, y, barWidth, Math.max(barHeight, 2), [6, 6, 2, 2]);
-        context.fill();
-        context.fillStyle = '#788698';
-        context.textAlign = 'center';
-        context.fillText(day.label, x + barWidth / 2, height - 12);
+        if (day.value > 0) {
+            const gradient = context.createLinearGradient(0, y, 0, y + barHeight);
+            gradient.addColorStop(0, '#e99a70');
+            gradient.addColorStop(1, '#cf7049');
+            context.fillStyle = gradient;
+            context.beginPath();
+            if (typeof context.roundRect === 'function') {
+                context.roundRect(x, y, barWidth, Math.max(barHeight, 3), [Math.min(5, barWidth / 2), Math.min(5, barWidth / 2), 2, 2]);
+            } else {
+                context.rect(x, y, barWidth, Math.max(barHeight, 3));
+            }
+            context.fill();
+        }
+        bars.push({ ...day, x, y, width: barWidth, height: barHeight });
+        if (day.label) {
+            context.fillStyle = '#87918e';
+            context.textAlign = 'center';
+            context.fillText(day.label, x + barWidth / 2, height - 14);
+        }
     });
+    if (tooltip) {
+        canvas.onmousemove = (event) => {
+            const bounds = canvas.getBoundingClientRect();
+            const pointerX = event.clientX - bounds.left;
+            const hovered = bars.find((bar) => pointerX >= bar.x - step / 2 && pointerX <= bar.x + bar.width + step / 2);
+            if (!hovered) {
+                tooltip.hidden = true;
+                return;
+            }
+            tooltip.textContent = `${hovered.date.toLocaleDateString([], { month: 'short', day: 'numeric' })} · ${formatPrice(hovered.value)}`;
+            tooltip.style.left = `${Math.max(8, Math.min(bounds.width - tooltip.offsetWidth - 8, hovered.x + hovered.width / 2 - tooltip.offsetWidth / 2))}px`;
+            tooltip.style.top = `${Math.max(6, hovered.y - 36)}px`;
+            tooltip.hidden = false;
+        };
+        canvas.onmouseleave = () => { tooltip.hidden = true; };
+    }
 }
 
 function drawChart(canvas, values) {
@@ -654,6 +717,27 @@ document.getElementById('notificationBtn').addEventListener('click', async () =>
 });
 
 appContent.addEventListener('click', async (event) => {
+    const rangeButton = event.target.closest('[data-chart-range]');
+    if (rangeButton) {
+        overviewSalesRange = Number(rangeButton.dataset.chartRange);
+        appContent.querySelectorAll('[data-chart-range]').forEach((button) => {
+            button.setAttribute('aria-pressed', String(button === rangeButton));
+        });
+        drawOverviewChart(document.getElementById('salesChart'), dashboardData.sales, overviewSalesRange);
+        return;
+    }
+    if (event.target.closest('#overviewNewOrderBtn')) {
+        try {
+            if (!dashboardData.tables) {
+                const data = await request('module_list', { resource: 'tables' }, 'GET');
+                dashboardData.tables = data.items;
+            }
+            showOrderForm();
+        } catch (error) {
+            toast(error.message, true);
+        }
+        return;
+    }
     const dismiss = event.target.closest('[data-dismiss-dialog], [data-dismiss]');
     if (dismiss) {
         const dialog = dismiss.closest('#recordDialog');
@@ -871,7 +955,7 @@ appContent.addEventListener('change', (event) => {
 });
 
 window.addEventListener('resize', () => {
-    if (activeView === 'dashboard') drawOverviewChart(document.getElementById('salesChart'), dashboardData?.sales || []);
+    if (activeView === 'dashboard') drawOverviewChart(document.getElementById('salesChart'), dashboardData?.sales || [], overviewSalesRange);
 });
 
 window.setInterval(async () => {

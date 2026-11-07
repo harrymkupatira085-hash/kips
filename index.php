@@ -38,12 +38,15 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
 <body>
     <header class="topbar">
         <div class="container nav">
+            <button class="mobile-nav-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="main-nav">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
+            </button>
             <a class="brand" href="index.php" aria-label="KIPS Restaurant home">
                 <span class="brand-mark">K</span>
                 <span><?= htmlspecialchars($restaurantName) ?></span>
             </a>
 
-            <nav class="main-nav" aria-label="Main navigation">
+            <nav class="main-nav" id="main-nav" aria-label="Main navigation">
                 <a href="index.php?page=menu" <?= $page === 'menu' ? 'aria-current="page"' : '' ?>>Menu</a>
                 <a href="index.php?page=reserve" <?= $page === 'reserve' ? 'aria-current="page"' : '' ?>>Reserve</a>
                 <a href="index.php?page=about" <?= $page === 'about' ? 'aria-current="page"' : '' ?>>About</a>
@@ -314,16 +317,41 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
     </div>
 
     <footer class="site-footer">
-        <div class="container">
-            <div class="footer-inner">
-                <p>© 2026 KIPS Restaurant</p>
-                <p>Open daily • 9:00 AM - 10:30 PM • <a href="admin.php">Administrator</a></p>
+        <div class="container footer-container">
+            <div class="footer-main">
+                <section class="footer-brand" aria-label="About KIPS Restaurant">
+                    <a class="brand footer-brand-link" href="index.php" aria-label="KIPS Restaurant home">
+                        <span class="brand-mark">K</span>
+                        <span>KIPS <small>RESTAURANT</small></span>
+                    </a>
+                    <p>Fresh, fast and flavorful meals, made with care and served with a smile.</p>
+                </section>
+
+                <section class="footer-hours" aria-labelledby="footerHoursTitle">
+                    <h2 id="footerHoursTitle">Opening hours</h2>
+                    <p>Open daily</p>
+                    <strong>9:00 AM – 10:30 PM</strong>
+                </section>
+
+                <nav class="footer-contact" aria-label="Connect with KIPS Restaurant">
+                    <h2>Stay connected</h2>
+                    <a href="https://wa.me/265983572473" target="_blank" rel="noopener noreferrer">
+                        <span class="footer-social-badge"><svg class="footer-social-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 11.7a8.4 8.4 0 0 1-12.4 7.4L3 20.5l1.5-4.9a8.4 8.4 0 1 1 16-3.9Z"></path><path d="M8.8 8.2c.2-.5.4-.5.7-.5h.5c.2 0 .4.1.5.4l.8 1.8c.1.2.1.4 0 .5l-.5.7c-.2.2-.2.4 0 .6.5.8 1.2 1.5 2 2 .2.1.4.2.6 0l.7-.8c.2-.2.4-.2.6-.1l1.7.8c.3.1.4.3.4.5 0 .4-.2 1.1-.6 1.4-.4.4-1 .6-1.6.5-1-.1-2.3-.7-3.8-2-1.3-1.1-2.2-2.5-2.5-3.5-.3-.8 0-1.7.5-2.3Z"></path></svg></span>
+                        <span><strong>WhatsApp</strong><small>0983 572 473</small></span>
+                    </a>
+                    <a href="https://www.facebook.com/search/top/?q=Reece%20Effects" target="_blank" rel="noopener noreferrer">
+                        <span class="footer-social-badge"><svg class="footer-social-icon footer-facebook-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 21v-8h2.7l.4-3.1h-3.1v-2c0-.9.3-1.5 1.6-1.5h1.7V3.6c-.3 0-1.3-.1-2.4-.1-2.4 0-4 1.5-4 4.1v2.3H7.7V13h2.7v8h3.1Z"></path></svg></span>
+                        <span><strong>Facebook</strong><small>Follow our page</small></span>
+                    </a>
+                    <a href="https://www.instagram.com/mkupadoingthings/" target="_blank" rel="noopener noreferrer">
+                        <span class="footer-social-badge"><svg class="footer-social-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="5"></rect><circle cx="12" cy="12" r="4"></circle><circle class="footer-instagram-dot" cx="17.7" cy="6.8" r="1"></circle></svg></span>
+                        <span><strong>Instagram</strong><small>@mkupadoingthings</small></span>
+                    </a>
+                </nav>
             </div>
-            <div class="footer-contact">
-                <p>Find us for more information:</p>
-                <a href="https://wa.me/265983572473" target="_blank" rel="noopener noreferrer">WhatsApp: 0983 572 473</a>
-                <a href="https://www.facebook.com/search/top/?q=Reece%20Effects" target="_blank" rel="noopener noreferrer">Facebook: Reece Effects</a>
-                <a href="https://www.instagram.com/mkupadoingthings/" target="_blank" rel="noopener noreferrer">Instagram: Mkupadoingthings</a>
+            <div class="footer-bottom">
+                <p>© <?= date('Y') ?> KIPS Restaurant. All rights reserved.</p>
+                <a href="admin.php">Administrator portal <span aria-hidden="true">→</span></a>
             </div>
         </div>
     </footer>
