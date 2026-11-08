@@ -227,7 +227,7 @@ try {
             api_response(['error' => 'This order link is invalid.'], 404);
         }
         $statement = restaurant_db()->prepare(
-            'SELECT id, total_price, payment_method, status, order_type,
+            'SELECT id, total_price, payment_method, status, order_type, delivery_address,
                     (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = orders.id AND status = \'completed\') AS paid_amount
              FROM orders WHERE id = ? AND customer_token_hash = ?'
         );
@@ -279,7 +279,7 @@ try {
         )->fetchAll() : [];
         $orders = $db->query(
             'SELECT id, customer_name, customer_phone, item_name, quantity, unit_price, total_price,
-                    payment_method, status, queue_position, order_type, table_number, notes, created_at,
+                    payment_method, status, queue_position, order_type, table_number, delivery_address, notes, created_at,
                     (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = orders.id AND status = \'completed\') AS paid_amount
              FROM orders
              ORDER BY CASE status WHEN \'awaiting_verification\' THEN 0 WHEN \'verified\' THEN 1 WHEN \'preparing\' THEN 2 ELSE 3 END,
@@ -546,6 +546,10 @@ try {
         if (!is_string($orderType) || !in_array($orderType, ['dine-in', 'takeaway', 'delivery'], true)) {
             api_response(['error' => 'Choose dine-in, takeaway, or delivery.'], 422);
         }
+        $deliveryAddress = '';
+        if ($orderType === 'delivery') {
+            $deliveryAddress = api_clean_text($input['delivery_address'] ?? null, 500, 'Delivery address');
+        }
         $tableNumber = '';
         if ($orderType === 'dine-in') {
             $tableNumber = api_clean_text($input['table_number'] ?? null, 20, 'Table');
@@ -593,13 +597,13 @@ try {
         }
         $firstItem = $orderItems[0];
         $statement = $db->prepare(
-            'INSERT INTO orders (customer_name, customer_phone, item_name, quantity, unit_price, total_price, payment_method, customer_token_hash, order_type, table_number, customer_id, notes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO orders (customer_name, customer_phone, item_name, quantity, unit_price, total_price, payment_method, customer_token_hash, order_type, table_number, customer_id, delivery_address, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $statement->execute([
             $name, $phone, $firstItem['name'], $totalQuantity, $firstItem['price'], $total,
             $paymentMethod, $customerToken !== null ? hash('sha256', $customerToken) : null,
-            $orderType, $tableNumber, $customerId, $notes
+            $orderType, $tableNumber, $customerId, $deliveryAddress, $notes
         ]);
         $orderId = (int) $db->lastInsertId();
         $lineInsert = $db->prepare('INSERT INTO order_items (order_id, menu_item_id, item_name, quantity, unit_price, line_total) VALUES (?, ?, ?, ?, ?, ?)');

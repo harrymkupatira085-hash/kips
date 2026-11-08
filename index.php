@@ -1,6 +1,31 @@
 <?php
 require_once __DIR__ . '/storage.php';
 $menuItems = restaurant_menu_items(true);
+$menuCategoryLabels = [
+    'main' => 'Meals',
+    'mains' => 'Meals',
+    'meal' => 'Meals',
+    'meals' => 'Meals',
+    'snack' => 'Snacks',
+    'snacks' => 'Snacks',
+    'dessert' => 'Desserts',
+    'desserts' => 'Desserts',
+    'drink' => 'Drinks',
+    'drinks' => 'Drinks',
+    'beverage' => 'Drinks',
+    'beverages' => 'Drinks'
+];
+$menuCategoryById = [];
+$menuCategories = [];
+foreach ($menuItems as $item) {
+    $category = trim((string) ($item['category'] ?? ''));
+    $categoryKey = strtolower($category);
+    $categoryLabel = $menuCategoryLabels[$categoryKey] ?? ($category !== '' ? $category : 'Meals');
+    $menuCategoryById[(int) $item['id']] = $categoryLabel;
+    if (!in_array($categoryLabel, $menuCategories, true)) {
+        $menuCategories[] = $categoryLabel;
+    }
+}
 $restaurantName = 'KIPS';
 $availableTables = restaurant_db()->query("SELECT table_number, capacity FROM restaurant_tables WHERE status = 'available' ORDER BY id")->fetchAll();
 $restaurantStats = [
@@ -33,7 +58,7 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=<?= (int) filemtime(__DIR__ . '/style.css') ?>">
+    <link rel="stylesheet" href="style.css?v=2-<?= (int) filemtime(__DIR__ . '/style.css') ?>">
 </head>
 <body>
     <header class="topbar">
@@ -53,7 +78,7 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
             </nav>
 
             <div class="header-actions">
-                <a href="index.php?page=order" class="nav-button">Order now</a>
+                <a href="index.php?page=order" class="nav-button">Order now <span id="navCartCount" class="nav-cart-count" aria-label="0 items in cart" hidden>0</span></a>
             </div>
         </div>
     </header>
@@ -113,16 +138,24 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                 <div class="section-heading">
                     <p class="eyebrow">Our menu</p>
                     <h2>Made fresh for your appetite</h2>
+                    <p class="menu-intro">Open daily from 9:00 AM to 10:30 PM. Need directions or help? <a href="https://wa.me/265983572473" target="_blank" rel="noopener noreferrer">Chat with us on WhatsApp.</a></p>
+                </div>
+
+                <div class="menu-filters" role="group" aria-label="Filter menu by category">
+                    <button class="menu-filter is-active" type="button" data-menu-filter="all" aria-pressed="true">All</button>
+                    <?php foreach ($menuCategories as $category): ?>
+                        <button class="menu-filter" type="button" data-menu-filter="<?= htmlspecialchars($category, ENT_QUOTES, 'UTF-8') ?>" aria-pressed="false"><?= htmlspecialchars($category) ?></button>
+                    <?php endforeach; ?>
                 </div>
 
                 <div class="menu-grid">
                     <?php foreach ($menuItems as $index => $item): ?>
-                        <article class="menu-card <?= $index === 0 ? 'active' : '' ?>">
+                        <article class="menu-card" data-category="<?= htmlspecialchars($menuCategoryById[(int) $item['id']], ENT_QUOTES, 'UTF-8') ?>">
                             <div class="menu-thumb <?= htmlspecialchars($item['thumb']) ?>">
                                 <?php if (!empty($item['image_path'])): ?>
-                                    <img src="api.php?action=menu_image&amp;id=<?= (int) $item['id'] ?>&amp;v=<?= rawurlencode($item['image_path']) ?>" alt="<?= htmlspecialchars($item['name']) ?>" loading="lazy">
+                                    <img src="api.php?action=menu_image&amp;id=<?= (int) $item['id'] ?>&amp;v=<?= rawurlencode($item['image_path']) ?>" alt="<?= htmlspecialchars($item['name']) ?>" loading="lazy" decoding="async">
                                 <?php elseif (!empty($item['image_url'])): ?>
-                                    <img src="<?= htmlspecialchars($item['image_url'], ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars($item['name']) ?>" loading="lazy">
+                                    <img src="<?= htmlspecialchars($item['image_url'], ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars($item['name']) ?>" loading="lazy" decoding="async">
                                 <?php endif; ?>
                             </div>
                             <div class="menu-content">
@@ -130,7 +163,7 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                                 <p><?= htmlspecialchars($item['description']) ?></p>
                                 <div class="menu-meta">
                                     <span>MK <?= number_format((float) $item['price'], 0) ?></span>
-                                    <button class="add-btn" data-item="<?= htmlspecialchars($item['name']) ?>" data-price="<?= number_format((float) $item['price'], 0) ?>">Add</button>
+                                    <button class="add-btn" data-item="<?= htmlspecialchars($item['name']) ?>" data-price="<?= (int) $item['price'] ?>">Add</button>
                                 </div>
                             </div>
                         </article>
@@ -139,6 +172,15 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                         <p class="admin-muted">Our menu is being updated. Please check back soon.</p>
                     <?php endif; ?>
                 </div>
+                <p id="menuCartMessage" class="reservation-message" role="status" aria-live="polite"></p>
+                <section id="menuCartSummary" class="cart-summary menu-cart-summary" aria-labelledby="menuCartTitle" hidden>
+                    <div class="cart-summary-heading">
+                        <h3 id="menuCartTitle">Your basket <span id="menuCartCount"></span></h3>
+                        <strong id="menuCartTotal">MK 0</strong>
+                    </div>
+                    <div id="menuCartItems" class="cart-items"></div>
+                    <button id="menuCartCheckout" type="button" class="primary-btn">Continue to checkout</button>
+                </section>
             </div>
         </section>
         <?php endif; ?>
@@ -160,15 +202,21 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                     <label for="quantity">Quantity</label>
                     <input id="quantity" type="number" min="1" max="50" value="1" />
 
-                    <div class="total-row">
-                        <span>Total</span>
-                        <strong id="totalPrice">MK <?= $menuItems ? number_format((float) $menuItems[0]['price'], 0) : '0' ?></strong>
-                    </div>
+                    <button id="addToCartBtn" type="button" class="secondary-btn" <?= !$menuItems ? 'disabled' : '' ?>>Add item to cart</button>
+                    <p id="orderMessage" role="status" aria-live="polite"><?= $menuItems ? 'Add one or more meals to your cart.' : 'No food is currently available to order.' ?></p>
+
+                    <section class="cart-summary" aria-labelledby="cartTitle">
+                        <h3 id="cartTitle">Your cart</h3>
+                        <div id="cartItems" class="cart-items"></div>
+                        <div class="total-row">
+                            <span>Total</span>
+                            <strong id="totalPrice">MK 0</strong>
+                        </div>
+                    </section>
 
                     <p class="payment-choice-note">Choose your payment method after our team confirms your order.</p>
 
-                    <button id="orderBtn" type="button" <?= !$menuItems ? 'disabled' : '' ?>>Place order</button>
-                    <p id="orderMessage"><?= $menuItems ? 'Your food is ready to be ordered.' : 'No food is currently available to order.' ?></p>
+                    <button id="orderBtn" type="button" disabled>Continue to order details</button>
                 </div>
             </div>
         </section>
@@ -231,6 +279,7 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                         <div><span>Items</span><strong id="customerOrderItems"></strong></div>
                         <div><span>Total</span><strong id="customerOrderTotal"></strong></div>
                         <div><span>Order type</span><strong id="customerOrderType"></strong></div>
+                        <div id="customerOrderAddressRow" hidden><span>Delivery address</span><strong id="customerOrderAddress"></strong></div>
                         <div><span>Payment preference</span><strong id="customerOrderMethod"></strong></div>
                     </div>
                     <div id="customerPaymentChoice" class="customer-payment-choice" hidden>
@@ -251,6 +300,20 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
             </div>
         </section>
     </main>
+
+    <div id="cartChoiceModal" class="cart-choice-modal" aria-hidden="true">
+        <section class="cart-choice-dialog" role="dialog" aria-modal="true" aria-labelledby="cartChoiceTitle" aria-describedby="cartChoiceMessage">
+            <button id="closeCartChoice" class="modal-close" type="button" aria-label="Close basket prompt">×</button>
+            <span class="eyebrow">Added to your basket</span>
+            <h2 id="cartChoiceTitle">What would you like to do?</h2>
+            <p id="cartChoiceMessage"></p>
+            <p class="cart-choice-note">Checkout sends an order request. You choose a payment preference only after the restaurant confirms your order.</p>
+            <div class="cart-choice-actions">
+                <button id="continueShoppingBtn" type="button" class="secondary-btn">Continue shopping</button>
+                <button id="checkoutCartBtn" type="button" class="primary-btn">Continue to checkout</button>
+            </div>
+        </section>
+    </div>
 
     <div id="paymentModal" class="payment-modal" aria-hidden="true">
         <div class="payment-modal-content" role="dialog" aria-modal="true" aria-labelledby="paymentModalTitle">
@@ -282,6 +345,11 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                 <option value="takeaway">Takeaway</option>
                 <option value="dine-in">Dine-in</option>
             </select>
+
+            <label for="deliveryAddress" id="deliveryAddressLabel">Delivery address
+                <textarea id="deliveryAddress" maxlength="500" rows="3" placeholder="Street, area, city and any helpful directions" required></textarea>
+                <small class="form-help">Required for delivery; your address is shared with restaurant staff to fulfill this order.</small>
+            </label>
 
             <label for="orderTable" id="orderTableLabel" hidden>Available table</label>
             <select id="orderTable" hidden>
@@ -356,6 +424,6 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
         </div>
     </footer>
 
-    <script src="script.js?v=<?= (int) filemtime(__DIR__ . '/script.js') ?>"></script>
+    <script src="script.js?v=3-<?= (int) filemtime(__DIR__ . '/script.js') ?>"></script>
 </body>
 </html>

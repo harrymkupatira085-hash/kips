@@ -3,7 +3,6 @@ const quantityInput = document.getElementById('quantity');
 const totalPrice = document.getElementById('totalPrice');
 const orderMessage = document.getElementById('orderMessage');
 const orderButton = document.getElementById('orderBtn');
-const menuCards = document.querySelectorAll('.menu-card');
 const addButtons = document.querySelectorAll('.add-btn');
 const paymentModal = document.getElementById('paymentModal');
 const closeModal = document.getElementById('closeModal');
@@ -21,6 +20,40 @@ const orderTableLabel = document.getElementById('orderTableLabel');
 const orderNotes = document.getElementById('orderNotes');
 const mobileNavToggle = document.querySelector('.mobile-nav-toggle');
 const mainNav = document.querySelector('.main-nav');
+const navCartCount = document.getElementById('navCartCount');
+const menuFilterButtons = document.querySelectorAll('[data-menu-filter]');
+const menuCards = document.querySelectorAll('.menu-card[data-category]');
+const addToCartButton = document.getElementById('addToCartBtn');
+const cartItems = document.getElementById('cartItems');
+const menuCartItems = document.getElementById('menuCartItems');
+const menuCartSummary = document.getElementById('menuCartSummary');
+const menuCartCount = document.getElementById('menuCartCount');
+const menuCartTotal = document.getElementById('menuCartTotal');
+const menuCartCheckout = document.getElementById('menuCartCheckout');
+const cartChoiceModal = document.getElementById('cartChoiceModal');
+const cartChoiceMessage = document.getElementById('cartChoiceMessage');
+const continueShoppingButton = document.getElementById('continueShoppingBtn');
+const checkoutCartButton = document.getElementById('checkoutCartBtn');
+const closeCartChoiceButton = document.getElementById('closeCartChoice');
+const deliveryAddress = document.getElementById('deliveryAddress');
+const deliveryAddressLabel = document.getElementById('deliveryAddressLabel');
+const cart = new Map();
+const cartStorageKey = 'kips-order-cart';
+let cartStorageError = '';
+let lastCartTrigger = null;
+
+try {
+    const savedCart = JSON.parse(localStorage.getItem(cartStorageKey) || '[]');
+    if (Array.isArray(savedCart)) {
+        savedCart.forEach((item) => {
+            if (item && typeof item.item_name === 'string' && Number.isInteger(item.quantity) && item.quantity > 0 && item.quantity <= 50) {
+                cart.set(item.item_name, item.quantity);
+            }
+        });
+    }
+} catch {
+    cartStorageError = 'Your browser could not restore the saved cart. You can still add items on this page.';
+}
 
 function closeMobileNav() {
     if (!mobileNavToggle || !mainNav) return;
@@ -40,6 +73,20 @@ mainNav?.querySelectorAll('a').forEach((link) => {
     link.addEventListener('click', closeMobileNav);
 });
 
+menuFilterButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+        const selectedCategory = button.dataset.menuFilter;
+        menuFilterButtons.forEach((filter) => {
+            const selected = filter === button;
+            filter.classList.toggle('is-active', selected);
+            filter.setAttribute('aria-pressed', String(selected));
+        });
+        menuCards.forEach((card) => {
+            card.hidden = selectedCategory !== 'all' && card.dataset.category !== selectedCategory;
+        });
+    });
+});
+
 document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') closeMobileNav();
 });
@@ -48,31 +95,133 @@ function formatKwacha(value) {
     return `MK ${Number(value).toLocaleString('en-US')}`;
 }
 
-function getSelectedPrice() {
-    return Number(menuSelect.selectedOptions[0]?.dataset.price) || 0;
+function cartQuantity() {
+    return Array.from(cart.values()).reduce((total, quantity) => total + quantity, 0);
 }
 
-function updateTotal() {
-    if (!menuSelect || !menuSelect.value) return;
-    const selectedItem = menuSelect.value;
-    const quantity = Math.max(1, Number(quantityInput.value) || 1);
-    const basePrice = getSelectedPrice();
-    const total = basePrice * quantity;
-
-    totalPrice.textContent = formatKwacha(total);
-
-    if (paymentModal) {
-        modalOrderItem.textContent = `${selectedItem} × ${quantity}`;
-        modalTotalPrice.textContent = formatKwacha(total);
+function saveCart() {
+    try {
+        localStorage.setItem(cartStorageKey, JSON.stringify(Array.from(cart, ([item_name, quantity]) => ({ item_name, quantity }))));
+        cartStorageError = '';
+        return true;
+    } catch {
+        cartStorageError = 'Your browser could not save the cart. Keep this page open while you order.';
+        return false;
     }
 }
 
-function openPaymentModal() {
-    if (!paymentModal) return;
+function addCartItem(item, quantity) {
+    const nextQuantity = (cart.get(item) || 0) + quantity;
+    if (nextQuantity > 50 || cartQuantity() + quantity > 100) {
+        throw new Error('You can order up to 50 of one meal and 100 items total.');
+    }
+    if (!cart.has(item) && cart.size >= 30) {
+        throw new Error('An order can include up to 30 different menu items.');
+    }
+    cart.set(item, nextQuantity);
+    return saveCart();
+}
 
-    updateTotal();
+function renderCart() {
+    const priceByItem = new Map(Array.from(addButtons, (button) => [button.dataset.item, Number(button.dataset.price) || 0]));
+    if (menuSelect) {
+        Array.from(menuSelect.options).forEach((option) => priceByItem.set(option.value, Number(option.dataset.price) || 0));
+    }
+    const total = Array.from(cart, ([item, quantity]) => (priceByItem.get(item) || 0) * quantity)
+        .reduce((sum, amount) => sum + amount, 0);
+    const quantities = cartQuantity();
+    if (navCartCount) {
+        navCartCount.textContent = String(quantities);
+        navCartCount.hidden = quantities === 0;
+        navCartCount.setAttribute('aria-label', `${quantities} item${quantities === 1 ? '' : 's'} in cart`);
+    }
+    const renderLines = (list) => {
+        if (!list) return;
+        list.replaceChildren();
+        cart.forEach((quantity, item) => {
+            const lineTotal = (priceByItem.get(item) || 0) * quantity;
+            const row = document.createElement('div');
+            row.className = 'cart-item';
+            const label = document.createElement('span');
+            label.textContent = `${item} × ${quantity}`;
+            const amount = document.createElement('strong');
+            amount.textContent = formatKwacha(lineTotal);
+            const decrease = document.createElement('button');
+            decrease.type = 'button';
+            decrease.className = 'cart-quantity-button';
+            decrease.dataset.cartAction = 'decrease';
+            decrease.dataset.item = item;
+            decrease.setAttribute('aria-label', `Decrease ${item} quantity`);
+            decrease.textContent = '−';
+            const quantityLabel = document.createElement('span');
+            quantityLabel.className = 'cart-quantity';
+            quantityLabel.textContent = String(quantity);
+            const increase = document.createElement('button');
+            increase.type = 'button';
+            increase.className = 'cart-quantity-button';
+            increase.dataset.cartAction = 'increase';
+            increase.dataset.item = item;
+            increase.setAttribute('aria-label', `Increase ${item} quantity`);
+            increase.textContent = '+';
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'cart-remove';
+            remove.dataset.cartRemove = item;
+            remove.setAttribute('aria-label', `Remove ${item} from cart`);
+            remove.textContent = 'Remove';
+            row.append(label, amount, decrease, quantityLabel, increase, remove);
+            list.append(row);
+        });
+    };
+    totalPrice && (totalPrice.textContent = formatKwacha(total));
+    renderLines(cartItems);
+    if (menuCartItems !== cartItems) {
+        renderLines(menuCartItems);
+        if (menuCartTotal) menuCartTotal.textContent = formatKwacha(total);
+        if (menuCartCount) menuCartCount.textContent = quantities ? `(${quantities} item${quantities === 1 ? '' : 's'})` : '';
+        if (menuCartSummary) menuCartSummary.hidden = cart.size === 0;
+    }
+    const unavailableItem = Array.from(cart.keys()).some((item) => !priceByItem.has(item));
+    if (orderButton) orderButton.disabled = cart.size === 0 || unavailableItem;
+    if (cart.size === 0 && orderMessage) {
+        orderMessage.textContent = 'Add one or more meals to your cart.';
+    } else if (unavailableItem && orderMessage) {
+        orderMessage.textContent = 'A cart item is no longer available. Remove it before continuing.';
+    }
+}
+
+renderCart();
+
+function showCartChoice(item) {
+    if (!cartChoiceModal) return;
+    const quantity = cart.get(item) || 1;
+    const priceByItem = new Map(Array.from(addButtons, (button) => [button.dataset.item, Number(button.dataset.price) || 0]));
+    if (menuSelect) {
+        Array.from(menuSelect.options).forEach((option) => priceByItem.set(option.value, Number(option.dataset.price) || 0));
+    }
+    const total = Array.from(cart, ([name, count]) => (priceByItem.get(name) || 0) * count)
+        .reduce((sum, amount) => sum + amount, 0);
+    cartChoiceMessage.textContent = `${item} × ${quantity} added. Your basket has ${cartQuantity()} item${cartQuantity() === 1 ? '' : 's'} totaling ${formatKwacha(total)}.`;
+    cartChoiceModal.classList.add('active');
+    cartChoiceModal.setAttribute('aria-hidden', 'false');
+    continueShoppingButton?.focus();
+}
+
+function closeCartChoice() {
+    if (!cartChoiceModal) return;
+    cartChoiceModal.classList.remove('active');
+    cartChoiceModal.setAttribute('aria-hidden', 'true');
+    lastCartTrigger?.focus();
+}
+
+function openPaymentModal() {
+    if (!paymentModal || !cart.size) return;
+    const summary = Array.from(cart, ([item, quantity]) => `${item} × ${quantity}`).join(', ');
+    modalOrderItem.textContent = summary;
+    modalTotalPrice.textContent = totalPrice.textContent;
     paymentModal.classList.add('active');
     paymentModal.setAttribute('aria-hidden', 'false');
+    customerName.focus();
 }
 
 function closePaymentModal() {
@@ -80,6 +229,7 @@ function closePaymentModal() {
 
     paymentModal.classList.remove('active');
     paymentModal.setAttribute('aria-hidden', 'true');
+    orderButton?.focus();
 }
 
 function closeOrderConfirmationModal() {
@@ -97,44 +247,100 @@ document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && orderConfirmation && !orderConfirmation.hidden) {
         closeOrderConfirmationModal();
     }
+    if (event.key === 'Escape' && cartChoiceModal?.classList.contains('active')) {
+        closeCartChoice();
+    }
 });
 
-menuSelect?.addEventListener('change', () => {
-    updateTotal();
-    orderMessage.textContent = `${menuSelect.value} selected. Our team will confirm your order before you choose a payment method.`;
+continueShoppingButton?.addEventListener('click', closeCartChoice);
+closeCartChoiceButton?.addEventListener('click', closeCartChoice);
+menuCartCheckout?.addEventListener('click', () => {
+    window.location.href = 'index.php?page=order&checkout=1';
+});
+cartChoiceModal?.addEventListener('click', (event) => {
+    if (event.target === cartChoiceModal) closeCartChoice();
+});
+checkoutCartButton?.addEventListener('click', () => {
+    window.location.href = 'index.php?page=order&checkout=1';
 });
 
-quantityInput?.addEventListener('input', updateTotal);
+addToCartButton?.addEventListener('click', () => {
+    try {
+        const quantity = Number(quantityInput.value);
+        if (!Number.isInteger(quantity) || quantity < 1 || quantity > 50) {
+            throw new Error('Choose a quantity between 1 and 50.');
+        }
+        const item = menuSelect.value;
+        const saved = addCartItem(item, quantity);
+        lastCartTrigger = addToCartButton;
+        renderCart();
+        orderMessage.textContent = saved
+            ? `${item} added to your cart.`
+            : `${item} added for this visit, but the cart could not be saved in your browser.`;
+        showCartChoice(item);
+    } catch (error) {
+        orderMessage.textContent = error.message;
+    }
+});
+
+function handleCartAction(event) {
+    const button = event.target.closest('[data-cart-remove], [data-cart-action]');
+    if (!button) return;
+    if (button.dataset.cartRemove) {
+        cart.delete(button.dataset.cartRemove);
+    } else {
+        const item = button.dataset.item;
+        const quantity = cart.get(item) || 0;
+        if (button.dataset.cartAction === 'decrease' && quantity <= 1) {
+            cart.delete(item);
+        } else if (button.dataset.cartAction === 'decrease') {
+            cart.set(item, quantity - 1);
+        } else if (button.dataset.cartAction === 'increase') {
+            try {
+                addCartItem(item, 1);
+            } catch (error) {
+                orderMessage.textContent = error.message;
+                return;
+            }
+        }
+    }
+    saveCart();
+    renderCart();
+}
+
+cartItems?.addEventListener('click', handleCartAction);
+menuCartItems?.addEventListener('click', handleCartAction);
 
 addButtons.forEach((button) => {
     button.addEventListener('click', () => {
         const item = button.dataset.item;
-        if (!menuSelect || !quantityInput) {
-            window.location.href = `index.php?page=order&item=${encodeURIComponent(item)}`;
-            return;
+        const message = document.getElementById('menuCartMessage');
+        try {
+            const saved = addCartItem(item, 1);
+            lastCartTrigger = button;
+            renderCart();
+            if (!saved) {
+                if (message) message.textContent = cartStorageError;
+            }
+            showCartChoice(item);
+        } catch (error) {
+            if (message) message.textContent = error.message;
         }
-        const price = Number(button.dataset.price);
-
-        menuSelect.value = item;
-        quantityInput.value = 1;
-
-        menuCards.forEach((card) => {
-            const title = card.querySelector('h3')?.textContent || '';
-            card.classList.toggle('active', title === item);
-        });
-
-        totalPrice.textContent = formatKwacha(price);
-        orderMessage.textContent = `${item} added to your order.`;
-        updateTotal();
-        openPaymentModal();
     });
 });
 
 if (menuSelect) {
     const requestedItem = new URLSearchParams(window.location.search).get('item');
-    if (requestedItem && Array.from(menuSelect.options).some((option) => option.value === requestedItem)) {
-        menuSelect.value = requestedItem;
-        updateTotal();
+    if (requestedItem && Array.from(menuSelect.options).some((option) => option.value === requestedItem) && !cart.has(requestedItem)) {
+        try {
+            addCartItem(requestedItem, 1);
+        } catch (error) {
+            orderMessage.textContent = error.message;
+        }
+    }
+    renderCart();
+    if (cartStorageError) orderMessage.textContent = cartStorageError;
+    if (new URLSearchParams(window.location.search).get('checkout') === '1') {
         openPaymentModal();
     }
 }
@@ -151,21 +357,27 @@ paymentModal?.addEventListener('click', (event) => {
 
 orderType?.addEventListener('change', () => {
     const showTable = orderType.value === 'dine-in';
+    const showAddress = orderType.value === 'delivery';
     orderTable.hidden = !showTable;
     orderTableLabel.hidden = !showTable;
     orderTable.required = showTable;
+    deliveryAddress.hidden = !showAddress;
+    deliveryAddressLabel.hidden = !showAddress;
+    deliveryAddress.required = showAddress;
     orderMessage.textContent = showTable && !orderTable.options.length
         ? 'No tables are available for dine-in right now.'
         : `${orderType.options[orderType.selectedIndex].text} selected. Our team will confirm your order before you choose a payment method.`;
 });
 
 confirmPaymentBtn?.addEventListener('click', async () => {
-    if (!customerName.reportValidity() || !customerPhone.reportValidity()) return;
-
-    const selectedItem = menuSelect.value;
-    const quantity = Math.max(1, Number(quantityInput.value) || 1);
-    const price = getSelectedPrice();
-    const total = price * quantity;
+    if (!customerName.reportValidity() || !customerPhone.reportValidity()
+        || (orderType.value === 'delivery' && !deliveryAddress.reportValidity())
+        || (orderType.value === 'dine-in' && !orderTable.reportValidity())) return;
+    if (!cart.size) {
+        orderMessage.textContent = 'Add a meal to your cart before placing the order.';
+        closePaymentModal();
+        return;
+    }
     const customer = customerName.value.trim() || 'Customer';
     confirmPaymentBtn.disabled = true;
     confirmPaymentBtn.textContent = 'Submitting…';
@@ -179,10 +391,10 @@ confirmPaymentBtn?.addEventListener('click', async () => {
             body: JSON.stringify({
                 customer_name: customer,
                 customer_phone: customerPhone.value.trim(),
-                item_name: selectedItem,
-                quantity,
+                items: Array.from(cart, ([item_name, quantity]) => ({ item_name, quantity })),
                 order_type: orderType.value,
                 table_number: orderType.value === 'dine-in' ? orderTable.value : '',
+                delivery_address: orderType.value === 'delivery' ? deliveryAddress.value.trim() : '',
                 notes: orderNotes.value.trim()
             })
         });
@@ -207,11 +419,15 @@ confirmPaymentBtn?.addEventListener('click', async () => {
                 window.prompt('Copy your private order link:', trackingUrl.href);
             }
         };
+        cart.clear();
+        saveCart();
+        renderCart();
         closePaymentModal();
         orderConfirmation.hidden = false;
         closeOrderConfirmation.focus();
         customerName.value = '';
         customerPhone.value = '';
+        deliveryAddress.value = '';
         orderNotes.value = '';
     } catch (error) {
         orderMessage.textContent = error.message;
@@ -259,6 +475,9 @@ async function loadCustomerOrder() {
         document.getElementById('customerOrderItems').textContent = order.items.map((item) => `${item.item_name} × ${item.quantity}`).join(', ');
         document.getElementById('customerOrderTotal').textContent = formatKwacha(order.total_price);
         document.getElementById('customerOrderType').textContent = order.order_type.replace('-', ' ');
+        const addressRow = document.getElementById('customerOrderAddressRow');
+        addressRow.hidden = order.order_type !== 'delivery';
+        document.getElementById('customerOrderAddress').textContent = order.delivery_address || '';
         document.getElementById('customerOrderMethod').textContent = order.payment_method === 'Awaiting customer choice' ? 'Not selected yet' : order.payment_method;
         customerPaymentChoice.hidden = !order.can_choose_payment;
         if (order.can_choose_payment && Array.from(customerPaymentMethod.options).some((option) => option.value === order.payment_method)) {
@@ -349,4 +568,4 @@ if (reservationForm) {
     });
 }
 
-updateTotal();
+renderCart();

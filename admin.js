@@ -442,10 +442,13 @@ function orderCard(order, orders) {
     const itemSummary = order.lines?.length
         ? order.lines.map((item) => `${item.item_name} × ${item.quantity}`).join(', ')
         : `${order.item_name} × ${order.quantity}`;
+    const deliveryAddress = order.order_type === 'delivery' && order.delivery_address
+        ? `<p class="ticket-address"><strong>Delivery to:</strong> ${escapeHtml(order.delivery_address)}</p>`
+        : '';
     return `<article class="ticket-card">
         <div class="ticket-top"><span class="ticket-id">#${order.id} <i class="order-type-dot type-${escapeHtml(order.order_type)}"></i>${escapeHtml(order.order_type)}${order.table_number ? ` · ${escapeHtml(order.table_number)}` : ''}</span><span class="status-pill status-${escapeHtml(status)}">${escapeHtml(statusLabel)}${status === 'verified' && order.queue_position ? ` · #${order.queue_position}` : ''}</span></div>
         <div class="ticket-customer"><span class="order-initial">${escapeHtml(order.customer_name.charAt(0).toUpperCase())}</span><span><strong>${escapeHtml(order.customer_name)}</strong><small>${escapeHtml(order.customer_phone)}</small></span></div>
-        <div class="ticket-food"><strong>${escapeHtml(itemSummary)}</strong>${order.notes ? `<p>${escapeHtml(order.notes)}</p>` : ''}</div>
+        <div class="ticket-food"><strong>${escapeHtml(itemSummary)}</strong>${deliveryAddress}${order.notes ? `<p>${escapeHtml(order.notes)}</p>` : ''}</div>
         <div class="ticket-total"><span>${formatPrice(order.total_price)}</span><small>${paymentState} · ${escapeHtml(order.payment_method)}</small></div>
         <div class="ticket-meta"><span>${dateLabel(order.created_at)}</span><button class="text-action" data-action="receipt" data-id="${order.id}">Details</button></div>
         <div class="ticket-actions">${actions || '<span class="app-muted">No actions available</span>'}</div>
@@ -564,7 +567,56 @@ function showMenuForm(record = {}) {
     const imagePreview = record.image_path
         ? `api.php?action=menu_image&amp;id=${Number(record.id)}&amp;v=${encodeURIComponent(record.image_path)}`
         : escapeHtml(record.image_url || '');
-    appContent.insertAdjacentHTML('beforeend', `<div class="dialog-backdrop" id="recordDialog"><section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle"><button class="dialog-close" data-dismiss-dialog aria-label="Close">×</button><span class="app-eyebrow">KIPS MENU</span><h2 id="dialogTitle">${isNew ? 'Add a menu item' : 'Edit menu item'}</h2><form id="menuItemForm" class="record-form" enctype="multipart/form-data"><input type="hidden" name="id" value="${record.id || 0}"><label>Food name<input name="name" required maxlength="100" value="${escapeHtml(record.name || '')}"></label><label>Description<textarea name="description" rows="3" required maxlength="300">${escapeHtml(record.description || '')}</textarea></label><label>Price (MK)<input name="price" type="number" min="1" max="100000000" required value="${escapeHtml(record.price || '')}"></label><label>Category<input name="category" maxlength="60" required value="${escapeHtml(record.category || 'Mains')}"></label><label class="menu-image-upload">Upload food photo<input name="image" type="file" accept=".jpg,.jpeg,.jfif,image/jpeg,.png,image/png,.webp,image/webp"><small>Choose a photo from this device · JPEG/JPG/JFIF, PNG or WebP · maximum 10 MB</small><img class="menu-image-preview" alt="Food photo preview" ${imagePreview ? `src="${imagePreview}"` : 'hidden'}>${record.image_path ? '<span class="menu-image-remove"><input name="remove_image" type="checkbox" value="1"> Remove current uploaded photo</span>' : ''}</label><label>Or HTTPS image URL<input name="image_url" type="url" placeholder="Optional, used if no uploaded photo" value="${escapeHtml(record.image_url || '')}"></label><label>Image style<select name="thumb">${['thumb-one', 'thumb-two', 'thumb-three', 'thumb-four', 'thumb-five'].map((thumb, index) => `<option value="${thumb}" ${record.thumb === thumb ? 'selected' : ''}>Food style ${index + 1}</option>`).join('')}</select></label><p class="app-message" data-form-error role="alert"></p><div class="dialog-actions"><button type="button" class="app-secondary" data-dismiss-dialog>Cancel</button><button type="submit" class="app-primary">${isNew ? 'Add to menu' : 'Save changes'}</button></div></form></section></div>`);
+    appContent.insertAdjacentHTML('beforeend', `<div class="dialog-backdrop" id="recordDialog"><section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle"><button class="dialog-close" data-dismiss-dialog aria-label="Close">×</button><span class="app-eyebrow">KIPS MENU</span><h2 id="dialogTitle">${isNew ? 'Add a menu item' : 'Edit menu item'}</h2><form id="menuItemForm" class="record-form" enctype="multipart/form-data"><input type="hidden" name="id" value="${record.id || 0}"><label>Food name<input name="name" required maxlength="100" value="${escapeHtml(record.name || '')}"></label><label>Description<textarea name="description" rows="3" required maxlength="300">${escapeHtml(record.description || '')}</textarea></label><label>Price (MK)<input name="price" type="number" min="1" max="100000000" required value="${escapeHtml(record.price || '')}"></label><label>Category<input name="category" maxlength="60" required value="${escapeHtml(record.category || 'Mains')}"></label><label class="menu-image-upload">Upload food photo<input name="image" type="file" accept=".jpg,.jpeg,.jfif,image/jpeg,.png,image/png,.webp,image/webp"><small>Use a clear photo of the actual dish · JPEG, PNG or WebP · maximum 10 MB. Photos are resized and optimized to WebP with a 150 KB target when supported.</small><img class="menu-image-preview" alt="Food photo preview" ${imagePreview ? `src="${imagePreview}"` : 'hidden'}>${record.image_path ? '<span class="menu-image-remove"><input name="remove_image" type="checkbox" value="1"> Remove current uploaded photo</span>' : ''}</label><label>Or HTTPS image URL<input name="image_url" type="url" placeholder="Optional, used if no uploaded photo" value="${escapeHtml(record.image_url || '')}"></label><label>Image style<select name="thumb">${['thumb-one', 'thumb-two', 'thumb-three', 'thumb-four', 'thumb-five'].map((thumb, index) => `<option value="${thumb}" ${record.thumb === thumb ? 'selected' : ''}>Food style ${index + 1}</option>`).join('')}</select></label><p class="app-message" data-form-error role="alert"></p><div class="dialog-actions"><button type="button" class="app-secondary" data-dismiss-dialog>Cancel</button><button type="submit" class="app-primary">${isNew ? 'Add to menu' : 'Save changes'}</button></div></form></section></div>`);
+}
+
+async function optimizeMenuPhoto(file) {
+    const targetBytes = 150 * 1024;
+    if (file.size <= targetBytes || typeof createImageBitmap !== 'function') return file;
+
+    const bitmap = await createImageBitmap(file);
+    try {
+        let smallestBlob = null;
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('This browser could not prepare the food photo.');
+
+        for (const maxDimension of [1600, 1200, 900, 640]) {
+            const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
+            canvas.width = Math.round(bitmap.width * scale);
+            canvas.height = Math.round(bitmap.height * scale);
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+            for (const quality of [0.82, 0.68, 0.54, 0.4]) {
+                const blob = await new Promise((resolve, reject) => {
+                    canvas.toBlob((result) => {
+                        if (!result) {
+                            reject(new Error('This browser could not optimize the food photo.'));
+                            return;
+                        }
+                        resolve(result);
+                    }, 'image/webp', quality);
+                });
+                if (blob.type !== 'image/webp') throw new Error('This browser does not support WebP photo uploads.');
+                if (!smallestBlob || blob.size < smallestBlob.size) smallestBlob = blob;
+                if (blob.size <= targetBytes) {
+                    return new File([blob], `${file.name.replace(/\.[^.]+$/, '') || 'menu-photo'}.webp`, {
+                        type: 'image/webp',
+                        lastModified: file.lastModified
+                    });
+                }
+            }
+        }
+
+        if (!smallestBlob) throw new Error('This browser could not optimize the food photo.');
+        return new File([smallestBlob], `${file.name.replace(/\.[^.]+$/, '') || 'menu-photo'}.webp`, {
+            type: 'image/webp',
+            lastModified: file.lastModified
+        });
+    } finally {
+        bitmap.close();
+    }
 }
 
 async function populateInventoryTools(ingredients) {
@@ -640,11 +692,18 @@ function showRecipeForm(menuId = null, ingredientId = null) {
 function showOrderForm() {
     const menuOptions = dashboardData.menu.filter((item) => Number(item.available)).map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)} · ${formatPrice(item.price)}</option>`).join('');
     const tableOptions = (dashboardData.tables || []).filter((item) => item.status === 'available').map((item) => `<option value="${escapeHtml(item.table_number)}">${escapeHtml(item.table_number)} · ${item.capacity} seats</option>`).join('');
-    appContent.insertAdjacentHTML('beforeend', `<div class="dialog-backdrop" id="recordDialog"><section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle"><button class="dialog-close" data-dismiss-dialog aria-label="Close">×</button><span class="app-eyebrow">SERVICE COUNTER</span><h2 id="dialogTitle">Start a new order</h2><form id="newOrderForm" class="record-form"><label>Guest name<input name="customer_name" required maxlength="100"></label><label>Phone<input name="customer_phone" required maxlength="30" type="tel"></label><div class="pos-lines-field"><span class="field-label">Order items</span><div id="posOrderLines">${orderLineMarkup(menuOptions, true)}</div><button id="addOrderLineBtn" class="add-order-line" type="button">＋ Add another item</button></div><label>Service type<select name="order_type"><option value="dine-in">Dine-in</option><option value="takeaway">Takeaway</option><option value="delivery">Delivery</option></select></label><label class="table-select-field">Table<select name="table_number">${tableOptions}</select></label><label>Payment method<select name="payment_method"><option>Cash</option><option>Bank Card</option><option>Airtel Money</option><option>TNM Mpamba</option><option>Bank Transfer</option></select></label><label>Order notes<textarea name="notes" maxlength="1000" rows="2"></textarea></label><div class="dialog-actions"><button type="button" class="app-secondary" data-dismiss-dialog>Cancel</button><button class="app-primary">Send to kitchen queue</button></div></form></section></div>`);
+    appContent.insertAdjacentHTML('beforeend', `<div class="dialog-backdrop" id="recordDialog"><section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle"><button class="dialog-close" data-dismiss-dialog aria-label="Close">×</button><span class="app-eyebrow">SERVICE COUNTER</span><h2 id="dialogTitle">Start a new order</h2><form id="newOrderForm" class="record-form"><label>Guest name<input name="customer_name" required maxlength="100"></label><label>Phone<input name="customer_phone" required maxlength="30" type="tel"></label><div class="pos-lines-field"><span class="field-label">Order items</span><div id="posOrderLines">${orderLineMarkup(menuOptions, true)}</div><button id="addOrderLineBtn" class="add-order-line" type="button">＋ Add another item</button></div><label>Service type<select name="order_type"><option value="dine-in">Dine-in</option><option value="takeaway">Takeaway</option><option value="delivery">Delivery</option></select></label><label class="table-select-field">Table<select name="table_number">${tableOptions}</select></label><label class="delivery-address-field" hidden>Delivery address<textarea name="delivery_address" maxlength="500" rows="3" placeholder="Street, area, city and directions"></textarea></label><label>Payment method<select name="payment_method"><option>Cash</option><option>Bank Card</option><option>Airtel Money</option><option>TNM Mpamba</option><option>Bank Transfer</option></select></label><label>Order notes<textarea name="notes" maxlength="1000" rows="2"></textarea></label><div class="dialog-actions"><button type="button" class="app-secondary" data-dismiss-dialog>Cancel</button><button class="app-primary">Send to kitchen queue</button></div></form></section></div>`);
     const typeSelect = document.querySelector('#newOrderForm [name="order_type"]');
     const tableField = document.querySelector('.table-select-field');
-    typeSelect.addEventListener('change', () => { tableField.hidden = typeSelect.value !== 'dine-in'; });
-    tableField.hidden = false;
+    const addressField = document.querySelector('.delivery-address-field');
+    const addressInput = addressField.querySelector('textarea');
+    const updateOrderFields = () => {
+        tableField.hidden = typeSelect.value !== 'dine-in';
+        addressField.hidden = typeSelect.value !== 'delivery';
+        addressInput.required = typeSelect.value === 'delivery';
+    };
+    typeSelect.addEventListener('change', updateOrderFields);
+    updateOrderFields();
 }
 
 function orderLineMarkup(menuOptions, onlyLine = false) {
@@ -884,6 +943,12 @@ appContent.addEventListener('submit', async (event) => {
             const formData = new FormData(form);
             formData.set('id', String(Number(formData.get('id'))));
             formData.set('price', String(Number(formData.get('price'))));
+            const menuPhoto = formData.get('image');
+            if (menuPhoto instanceof File && menuPhoto.size > 0 && menuPhoto.size > 150 * 1024) {
+                if (submitButton) submitButton.textContent = 'Optimizing photo…';
+                formData.set('image', await optimizeMenuPhoto(menuPhoto), menuPhoto.name);
+            }
+            if (submitButton) submitButton.textContent = 'Saving…';
             result = await request('save_menu_item', formData);
             form.closest('#recordDialog').remove();
             toast(result.message);

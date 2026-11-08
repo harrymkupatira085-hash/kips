@@ -2,10 +2,53 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="refresh" content="0; url=index.php">
-    <title>Redirecting to KIPS Restaurant</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#fffaf2">
+    <title>KIPS Restaurant hosting setup</title>
+    <style>
+        body {
+            display: grid;
+            min-height: 100vh;
+            margin: 0;
+            padding: 24px;
+            place-items: center;
+            background: #fffaf2;
+            color: #1f2937;
+            font: 16px/1.6 system-ui, sans-serif;
+        }
+
+        main {
+            width: min(100%, 560px);
+            padding: 32px;
+            border: 1px solid #f1dfca;
+            border-radius: 20px;
+            background: #fff;
+            box-shadow: 0 18px 50px rgba(94, 50, 8, .1);
+        }
+
+        h1 {
+            margin-top: 0;
+            color: #c2410c;
+        }
+
+        code {
+            padding: 2px 6px;
+            border-radius: 5px;
+            background: #fff0db;
+        }
+
+        a {
+            color: #c2410c;
+            font-weight: 700;
+        }
+    </style>
 </head>
 <body>
-    <p>Redirecting to the restaurant page...</p>
+    <main>
+        <h1>KIPS Restaurant</h1>
+        <p>This restaurant system needs a PHP web server. The current static hosting service cannot run its ordering or staff-management pages.</p>
+        <p>Deploy the project as a Docker web service using the included <code>render.yaml</code>, then connect your website domain to that service.</p>
+        <p>Deployment instructions: <a href="https://github.com/harrymkupatira085-hash/kips#public-deployment-on-render">KIPS Render setup</a>.</p>
+    </main>
 </body>
 </html>

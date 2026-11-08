@@ -22,17 +22,20 @@ KIPS is a PHP restaurant ordering and operations app with MySQL support, a local
 
 ## Public deployment on Render
 
-1. Push the project, including its root `Dockerfile`, to the GitHub `main` branch.
-2. In Render, create a **Web Service** connected to this repository. Select the **Docker** runtime, leave **Root Directory** and **Docker Command** blank, and use `./Dockerfile` as the Dockerfile path. Do not enter a static-site publish directory.
-3. Add a persistent disk mounted at `/var/data`. The container sets `KIPS_DATA_DIR=/var/data` so the SQLite database and uploaded images are kept on that disk.
-4. Deploy, open the generated `onrender.com` address, and create the first administrator account.
+This project is a PHP application. Static hosts such as Netlify cannot run its `index.php` or `api.php` endpoints; the root `index.html` is only a setup notice for static hosting.
+
+1. Push the project, including `Dockerfile` and `render.yaml`, to the GitHub `main` branch.
+2. In Render, choose **New → Blueprint**, connect this repository, and deploy the `kips-restaurant` service described by `render.yaml`. The blueprint uses the Docker runtime and a persistent 1 GB disk mounted at `/var/data` for the SQLite database and uploaded images.
+3. Review Render's current service and disk charges before confirming deployment; the persistent disk requires a paid service plan.
+4. Open the generated `onrender.com` address and create the first administrator account at `/admin.php`.
+5. To use your existing custom domain, add it to the Render service and update its DNS records as Render instructs. Remove the domain from Netlify once it is attached to Render.
 
 The included Dockerfile listens on Render's default web-service port 10000 and installs the PHP SQLite and mbstring extensions required by the app. Before taking real customer orders, configure HTTPS, backups, and your production security settings.
 
 ## Included operations
 
 - Role-aware staff accounts and server-side permission checks.
-- Menu and availability management, including local food-photo uploads; dine-in, takeaway and delivery orders.
+- Menu and availability management, including local food-photo uploads; a multi-item customer cart; and dine-in, takeaway and delivery orders with a required delivery address.
 - Order verification, a manually reorderable kitchen queue, and 15-second dashboard refresh.
 - Reservations with table assignment and overlap checks, restaurant tables, customer records and loyalty points.
 - Suppliers, ingredient inventory, stock movements, recipe-based stock deduction, and low-stock notifications.
@@ -49,3 +52,13 @@ This app records payments received by staff; it does not initiate or authorize c
 ### Production deployment
 
 Use HTTPS, strong unique staff passwords, a least-privilege MySQL account, private database/network access, and scheduled encrypted database backups. Review local privacy and retention requirements before storing customer information. The JSON export is an administrator download; it does not replace tested database backups or provide a restore operation.
+
+## Order-flow checks
+
+With XAMPP PHP and Node.js installed, run the isolated order API integration tests with:
+
+```powershell
+node --test tests/order-flow.test.js
+```
+
+The test starts a temporary PHP server and uses a separate temporary SQLite data directory; it does not modify the restaurant's normal database.

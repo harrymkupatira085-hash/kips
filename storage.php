@@ -83,7 +83,7 @@ function restaurant_db(): PDO
     }
     $engine = $mysql ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : '';
     $db->exec("CREATE TABLE IF NOT EXISTS restaurant_schema_version (version INTEGER PRIMARY KEY){$engine}");
-    if ((int) $db->query('SELECT COALESCE(MAX(version), 0) FROM restaurant_schema_version')->fetchColumn() >= 5) {
+    if ((int) $db->query('SELECT COALESCE(MAX(version), 0) FROM restaurant_schema_version')->fetchColumn() >= 6) {
         return $db;
     }
 
@@ -106,7 +106,8 @@ function restaurant_db(): PDO
             customer_token_hash CHAR(64) NULL,
             status VARCHAR(40) NOT NULL DEFAULT 'awaiting_verification', queue_position {$integer} NULL,
             order_type VARCHAR(30) NOT NULL DEFAULT 'delivery', table_number VARCHAR(20) NOT NULL DEFAULT '',
-            customer_id {$integer} NULL, notes VARCHAR(2000) NOT NULL DEFAULT '', created_at {$timestamp}
+            customer_id {$integer} NULL, delivery_address VARCHAR(500) NOT NULL DEFAULT '',
+            notes VARCHAR(2000) NOT NULL DEFAULT '', created_at {$timestamp}
         ){$engine}",
         "CREATE TABLE IF NOT EXISTS order_items (
             id {$id}, order_id {$integer} NOT NULL, menu_item_id {$integer} NULL,
@@ -201,6 +202,7 @@ function restaurant_db(): PDO
     $ensureColumn('orders', 'order_type', "VARCHAR(30) NOT NULL DEFAULT 'delivery'");
     $ensureColumn('orders', 'table_number', "VARCHAR(20) NOT NULL DEFAULT ''");
     $ensureColumn('orders', 'customer_id', 'INTEGER NULL');
+    $ensureColumn('orders', 'delivery_address', "VARCHAR(500) NOT NULL DEFAULT ''");
     $ensureColumn('orders', 'notes', "VARCHAR(2000) NOT NULL DEFAULT ''");
     $ensureColumn('orders', 'customer_token_hash', 'CHAR(64) NULL');
     $ensureColumn('ingredients', 'image_path', "VARCHAR(80) NOT NULL DEFAULT ''");
@@ -253,7 +255,7 @@ function restaurant_db(): PDO
             $insert->execute(['T' . $number, $number <= 4 ? 2 : 4]);
         }
     }
-    $db->exec('INSERT INTO restaurant_schema_version (version) VALUES (5)');
+    $db->exec('INSERT INTO restaurant_schema_version (version) VALUES (6)');
 
     return $db;
 }
