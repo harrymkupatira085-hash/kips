@@ -1,0 +1,35 @@
+name: Docker smoke test
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t kips .
+
+      - name: Start container
+        run: |
+          docker run -d --name kips -p 10000:10000 -e KIPS_DATA_DIR=/var/data kips
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:10000/api.php?action=status || true)
+            echo "attempt $i: $code"
+            if [ "$code" = "200" ]; then
+              echo "health check passed"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "health check failed"
+          docker logs kips || true
+          exit 1
+
+      - name: Show container logs
+        if: always()
+        run: docker logs kips || true
