@@ -25,8 +25,10 @@ KIPS is a PHP restaurant ordering and operations app with MySQL support, a local
 
 This project is a PHP application. Static hosts such as Netlify cannot run its `index.php` or `api.php` endpoints; the root `index.html` is only a setup notice for static hosting.
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/harrymkupatira085-hash/kips)
+
 1. Push the project, including `Dockerfile` and `render.yaml`, to the GitHub `main` branch.
-2. In Render, choose **New → Blueprint**, connect this repository, and deploy the `kips-restaurant` service described by `render.yaml`. The blueprint uses the Docker runtime and a persistent 1 GB disk mounted at `/var/data` for the SQLite database and uploaded images.
+2. Open the deploy link above or choose **New → Blueprint** in Render, connect this repository, and deploy the `kips-restaurant` service described by `render.yaml`. The blueprint uses the Docker runtime and a persistent 1 GB disk mounted at `/var/data` for the SQLite database and uploaded images.
 3. Review Render's current service and disk charges before confirming deployment; the persistent disk requires a paid service plan.
 4. Open the generated `onrender.com` address and create the first administrator account at `/admin.php`.
 5. To use your existing custom domain, add it to the Render service and update its DNS records as Render instructs. Remove the domain from Netlify once it is attached to Render.
