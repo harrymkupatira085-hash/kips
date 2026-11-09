@@ -12,7 +12,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build image
-        run: docker build -t kips .
+        run: |
+          set -o pipefail
+          if ! docker build -t kips . 2>&1 | tee /tmp/build.log; then
+            msg=$(tail -c 3000 /tmp/build.log | tr '\n' ' ')
+            echo "::error title=Docker build failed::$msg"
+            exit 1
+          fi
 
       - name: Start container
         run: |
