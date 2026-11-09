@@ -8,7 +8,6 @@ const paymentModal = document.getElementById('paymentModal');
 const closeModal = document.getElementById('closeModal');
 const confirmPaymentBtn = document.getElementById('confirmPaymentBtn');
 const modalOrderItem = document.getElementById('modalOrderItem');
-const modalTotalPrice = document.getElementById('modalTotalPrice');
 const customerName = document.getElementById('customerName');
 const customerPhone = document.getElementById('customerPhone');
 const orderConfirmation = document.getElementById('orderConfirmation');
@@ -41,6 +40,16 @@ const cart = new Map();
 const cartStorageKey = 'kips-order-cart';
 let cartStorageError = '';
 let lastCartTrigger = null;
+const kipsSettings = (() => {
+    try {
+        return JSON.parse(document.getElementById('kipsSettings')?.textContent || '{}') || {};
+    } catch {
+        return {};
+    }
+})();
+const currencySymbol = kipsSettings.currency_symbol || 'MK';
+const checkoutDeliveryFee = Math.max(0, Number(kipsSettings.delivery_fee) || 0);
+const checkoutTaxRate = Math.max(0, Number(kipsSettings.tax_rate) || 0);
 
 try {
     const savedCart = JSON.parse(localStorage.getItem(cartStorageKey) || '[]');
@@ -92,11 +101,50 @@ document.addEventListener('keydown', (event) => {
 });
 
 function formatKwacha(value) {
-    return `MK ${Number(value).toLocaleString('en-US')}`;
+    return `${currencySymbol} ${Number(value).toLocaleString('en-US')}`;
 }
 
 function cartQuantity() {
     return Array.from(cart.values()).reduce((total, quantity) => total + quantity, 0);
+}
+
+function menuPriceMap() {
+    const priceByItem = new Map(Array.from(addButtons, (button) => [button.dataset.item, Number(button.dataset.price) || 0]));
+    if (menuSelect) {
+        Array.from(menuSelect.options).forEach((option) => priceByItem.set(option.value, Number(option.dataset.price) || 0));
+    }
+    return priceByItem;
+}
+
+function cartSubtotal() {
+    const priceByItem = menuPriceMap();
+    return Array.from(cart, ([item, quantity]) => (priceByItem.get(item) || 0) * quantity)
+        .reduce((sum, amount) => sum + amount, 0);
+}
+
+function checkoutTotals() {
+    const subtotal = cartSubtotal();
+    const delivery = orderType?.value === 'delivery' ? checkoutDeliveryFee : 0;
+    const tax = Math.round(subtotal * checkoutTaxRate / 100);
+    return { subtotal, delivery, tax, total: subtotal + delivery + tax };
+}
+
+function updateModalTotals() {
+    const totals = checkoutTotals();
+    const setText = (id, text) => {
+        const element = document.getElementById(id);
+        if (element) element.textContent = text;
+    };
+    setText('modalSubtotal', formatKwacha(totals.subtotal));
+    setText('modalDeliveryFee', formatKwacha(totals.delivery));
+    setText('modalTaxAmount', formatKwacha(totals.tax));
+    setText('modalTotalPrice', formatKwacha(totals.total));
+    const deliveryRow = document.getElementById('modalDeliveryRow');
+    if (deliveryRow) deliveryRow.hidden = totals.delivery <= 0;
+    const taxRow = document.getElementById('modalTaxRow');
+    if (taxRow) taxRow.hidden = totals.tax <= 0;
+    const taxLabel = document.getElementById('modalTaxLabel');
+    if (taxLabel) taxLabel.textContent = checkoutTaxRate ? `VAT (${checkoutTaxRate}%)` : 'VAT / tax';
 }
 
 function saveCart() {
@@ -123,12 +171,8 @@ function addCartItem(item, quantity) {
 }
 
 function renderCart() {
-    const priceByItem = new Map(Array.from(addButtons, (button) => [button.dataset.item, Number(button.dataset.price) || 0]));
-    if (menuSelect) {
-        Array.from(menuSelect.options).forEach((option) => priceByItem.set(option.value, Number(option.dataset.price) || 0));
-    }
-    const total = Array.from(cart, ([item, quantity]) => (priceByItem.get(item) || 0) * quantity)
-        .reduce((sum, amount) => sum + amount, 0);
+    const priceByItem = menuPriceMap();
+    const subtotal = cartSubtotal();
     const quantities = cartQuantity();
     if (navCartCount) {
         navCartCount.textContent = String(quantities);
@@ -173,11 +217,11 @@ function renderCart() {
             list.append(row);
         });
     };
-    totalPrice && (totalPrice.textContent = formatKwacha(total));
+    totalPrice && (totalPrice.textContent = formatKwacha(subtotal));
     renderLines(cartItems);
     if (menuCartItems !== cartItems) {
         renderLines(menuCartItems);
-        if (menuCartTotal) menuCartTotal.textContent = formatKwacha(total);
+        if (menuCartTotal) menuCartTotal.textContent = formatKwacha(subtotal);
         if (menuCartCount) menuCartCount.textContent = quantities ? `(${quantities} item${quantities === 1 ? '' : 's'})` : '';
         if (menuCartSummary) menuCartSummary.hidden = cart.size === 0;
     }
@@ -188,6 +232,7 @@ function renderCart() {
     } else if (unavailableItem && orderMessage) {
         orderMessage.textContent = 'A cart item is no longer available. Remove it before continuing.';
     }
+    if (paymentModal?.classList.contains('active')) updateModalTotals();
 }
 
 renderCart();
@@ -218,7 +263,7 @@ function openPaymentModal() {
     if (!paymentModal || !cart.size) return;
     const summary = Array.from(cart, ([item, quantity]) => `${item} × ${quantity}`).join(', ');
     modalOrderItem.textContent = summary;
-    modalTotalPrice.textContent = totalPrice.textContent;
+    updateModalTotals();
     paymentModal.classList.add('active');
     paymentModal.setAttribute('aria-hidden', 'false');
     customerName.focus();
@@ -367,6 +412,7 @@ orderType?.addEventListener('change', () => {
     orderMessage.textContent = showTable && !orderTable.options.length
         ? 'No tables are available for dine-in right now.'
         : `${orderType.options[orderType.selectedIndex].text} selected. Our team will confirm your order before you choose a payment method.`;
+    updateModalTotals();
 });
 
 confirmPaymentBtn?.addEventListener('click', async () => {
@@ -460,20 +506,32 @@ async function loadCustomerOrder() {
         const order = result.order;
         const hasPaymentPreference = order.payment_method !== 'Awaiting customer choice';
         const statuses = {
-            awaiting_verification: 'Your order is being reviewed. Our team will contact you manually to confirm it. Payment selection will become available after confirmation.',
+            awaiting_verification: 'Your order is being reviewed. Our team will contact you to confirm it, and you can cancel it below until then. Payment selection will become available after confirmation.',
             verified: hasPaymentPreference
-                ? `Your order is confirmed. Your preferred method is ${order.payment_method}. Staff will verify payment after receiving it.`
-                : 'Your order is confirmed. Choose your preferred payment method below. Staff will verify payment after receiving it.',
+                ? `Your order is confirmed — please be ready to receive your meal. Your preferred method is ${order.payment_method}. Staff will verify payment after receiving it.`
+                : 'Your order is confirmed — please be ready to receive your meal. Choose your preferred payment method below.',
             preparing: hasPaymentPreference
-                ? `Your order is being prepared. Your preferred method is ${order.payment_method}; staff will verify payment after receiving it.`
-                : 'Your order is being prepared. Choose your preferred payment method below.',
-            completed: 'This order is complete.',
+                ? `Your order is being prepared — please be ready to receive your meal. Your preferred method is ${order.payment_method}; staff will verify payment after receiving it.`
+                : 'Your order is being prepared — please be ready to receive your meal. Choose your preferred payment method below.',
+            completed: 'Your order is ready. Please receive your meal — thank you!',
             cancelled: 'This order was cancelled. Contact the restaurant if you need help.'
         };
         customerOrderStatus.textContent = statuses[order.status] || 'Order status updated. Contact the restaurant for assistance.';
         customerOrderSummary.hidden = false;
         document.getElementById('customerOrderItems').textContent = order.items.map((item) => `${item.item_name} × ${item.quantity}`).join(', ');
+        document.getElementById('customerOrderSubtotal').textContent = formatKwacha(Number(order.subtotal) || Number(order.total_price));
+        const deliveryRow = document.getElementById('customerOrderDeliveryRow');
+        deliveryRow.hidden = !Number(order.delivery_fee);
+        document.getElementById('customerOrderDeliveryFee').textContent = formatKwacha(order.delivery_fee);
+        const taxRow = document.getElementById('customerOrderTaxRow');
+        taxRow.hidden = !Number(order.tax_amount);
+        document.getElementById('customerOrderTax').textContent = formatKwacha(order.tax_amount);
+        const discountRow = document.getElementById('customerOrderDiscountRow');
+        discountRow.hidden = !Number(order.discount);
+        document.getElementById('customerOrderDiscount').textContent = `− ${formatKwacha(order.discount)}`;
         document.getElementById('customerOrderTotal').textContent = formatKwacha(order.total_price);
+        const cancelButton = document.getElementById('cancelCustomerOrder');
+        if (cancelButton) cancelButton.hidden = !order.can_cancel;
         document.getElementById('customerOrderType').textContent = order.order_type.replace('-', ' ');
         const addressRow = document.getElementById('customerOrderAddressRow');
         addressRow.hidden = order.order_type !== 'delivery';
@@ -483,13 +541,15 @@ async function loadCustomerOrder() {
         if (order.can_choose_payment && Array.from(customerPaymentMethod.options).some((option) => option.value === order.payment_method)) {
             customerPaymentMethod.value = order.payment_method;
         }
-        if (order.status === 'awaiting_verification') {
+        if (['awaiting_verification', 'verified', 'preparing'].includes(order.status)) {
             customerOrderRefreshTimer = setTimeout(loadCustomerOrder, 15000);
         }
     } catch (error) {
         customerOrderStatus.textContent = error.message;
         customerOrderSummary.hidden = true;
         customerPaymentChoice.hidden = true;
+        const cancelButton = document.getElementById('cancelCustomerOrder');
+        if (cancelButton) cancelButton.hidden = true;
     }
 }
 
@@ -500,6 +560,28 @@ if (customerOrderPage && customerOrderId && /^\d+$/.test(customerOrderId) && /^[
     customerOrderPage.hidden = false;
     customerOrderNumber.textContent = `#${customerOrderId}`;
     document.getElementById('refreshCustomerOrder').addEventListener('click', loadCustomerOrder);
+    document.getElementById('cancelCustomerOrder')?.addEventListener('click', async (event) => {
+        if (!window.confirm('Cancel this order? The restaurant will be notified.')) return;
+        const button = event.currentTarget;
+        button.disabled = true;
+        button.textContent = 'Cancelling…';
+        try {
+            const response = await fetch('api.php?action=cancel_order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ order_id: Number(customerOrderId), token: customerOrderToken })
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Could not cancel this order.');
+            customerOrderStatus.textContent = result.message;
+            await loadCustomerOrder();
+        } catch (error) {
+            customerOrderStatus.textContent = error.message;
+        } finally {
+            button.disabled = false;
+            button.textContent = 'Cancel this order';
+        }
+    });
     saveCustomerPayment.addEventListener('click', async () => {
         saveCustomerPayment.disabled = true;
         saveCustomerPayment.textContent = 'Saving…';

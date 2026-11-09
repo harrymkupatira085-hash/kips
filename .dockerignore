@@ -2,6 +2,7 @@
 .gitignore
 .env
 .env.*
+config.local.php
 *.sqlite
 *.sqlite-*
 *-data

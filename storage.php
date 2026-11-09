@@ -1,6 +1,74 @@
 <?php
 declare(strict_types=1);
 
+function restaurant_config(string $key, string $default = ''): string
+{
+    static $localConfig = null;
+    if ($localConfig === null) {
+        $localConfig = [];
+        $configFile = __DIR__ . DIRECTORY_SEPARATOR . 'config.local.php';
+        if (is_file($configFile)) {
+            $loaded = require $configFile;
+            if (is_array($loaded)) {
+                $localConfig = $loaded;
+            }
+        }
+    }
+    if (isset($localConfig[$key]) && is_scalar($localConfig[$key]) && (string) $localConfig[$key] !== '') {
+        return (string) $localConfig[$key];
+    }
+    $env = getenv($key);
+    return $env === false || $env === '' ? $default : (string) $env;
+}
+
+function restaurant_settings_defaults(): array
+{
+    return [
+        'restaurant_name' => 'KIPS',
+        'restaurant_tagline' => 'Fresh • Fast • Flavorful',
+        'phone_display' => '0983 572 473',
+        'whatsapp_number' => '265983572473',
+        'country_code' => '265',
+        'opening_hours' => '9:00 AM – 10:30 PM',
+        'opening_note' => 'Open daily',
+        'facebook_url' => 'https://www.facebook.com/search/top/?q=Reece%20Effects',
+        'instagram_url' => 'https://www.instagram.com/mkupadoingthings/',
+        'currency_symbol' => 'MK',
+        'delivery_fee' => '0',
+        'tax_rate' => '0'
+    ];
+}
+
+function restaurant_settings(bool $refresh = false): array
+{
+    static $settings = null;
+    if ($settings !== null && !$refresh) {
+        return $settings;
+    }
+    $settings = restaurant_settings_defaults();
+    $rows = restaurant_db()->query('SELECT setting_key, setting_value FROM restaurant_settings')->fetchAll();
+    foreach ($rows as $row) {
+        if (array_key_exists($row['setting_key'], $settings)) {
+            $settings[$row['setting_key']] = (string) $row['setting_value'];
+        }
+    }
+    return $settings;
+}
+
+function restaurant_settings_save(array $values): void
+{
+    $db = restaurant_db();
+    $mysql = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+    $statement = $mysql
+        ? $db->prepare('INSERT INTO restaurant_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)')
+        : $db->prepare('INSERT INTO restaurant_settings (setting_key, setting_value) VALUES (?, ?) ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value');
+    foreach ($values as $key => $value) {
+        if (array_key_exists($key, restaurant_settings_defaults())) {
+            $statement->execute([$key, (string) $value]);
+        }
+    }
+}
+
 function restaurant_menu_defaults(): array
 {
     return [
@@ -15,7 +83,7 @@ function restaurant_menu_defaults(): array
 function restaurant_data_directory(): string
 {
     $documentRoot = $_SERVER['DOCUMENT_ROOT'] ?? dirname(__DIR__);
-    $dataDirectory = getenv('KIPS_DATA_DIR') ?: dirname($documentRoot) . DIRECTORY_SEPARATOR . 'kips-data';
+    $dataDirectory = restaurant_config('KIPS_DATA_DIR') ?: dirname($documentRoot) . DIRECTORY_SEPARATOR . 'kips-data';
     if (!is_dir($dataDirectory) && !mkdir($dataDirectory, 0700, true) && !is_dir($dataDirectory)) {
         throw new RuntimeException('The restaurant data directory could not be created.');
     }
@@ -47,19 +115,19 @@ function restaurant_db(): PDO
         return $db;
     }
 
-    $dsn = getenv('KIPS_DB_DSN');
-    $username = getenv('KIPS_DB_USER') ?: '';
-    $password = getenv('KIPS_DB_PASSWORD') ?: '';
+    $dsn = restaurant_config('KIPS_DB_DSN');
+    $username = restaurant_config('KIPS_DB_USER');
+    $password = restaurant_config('KIPS_DB_PASSWORD');
+    $host = restaurant_config('KIPS_DB_HOST');
     if ($dsn) {
         $db = new PDO($dsn, $username, $password);
-    } elseif (getenv('KIPS_DB_HOST')) {
-        $host = getenv('KIPS_DB_HOST');
-        $port = getenv('KIPS_DB_PORT') ?: '3306';
-        $database = getenv('KIPS_DB_NAME') ?: 'kips_restaurant';
+    } elseif ($host) {
+        $port = restaurant_config('KIPS_DB_PORT', '3306');
+        $database = restaurant_config('KIPS_DB_NAME', 'kips_restaurant');
         $db = new PDO("mysql:host={$host};port={$port};dbname={$database};charset=utf8mb4", $username, $password);
     } else {
         $documentRoot = $_SERVER['DOCUMENT_ROOT'] ?? dirname(__DIR__);
-        $dataDirectory = getenv('KIPS_DATA_DIR') ?: dirname($documentRoot) . DIRECTORY_SEPARATOR . 'kips-data';
+        $dataDirectory = restaurant_config('KIPS_DATA_DIR') ?: dirname($documentRoot) . DIRECTORY_SEPARATOR . 'kips-data';
         if (!is_dir($dataDirectory) && !mkdir($dataDirectory, 0700, true) && !is_dir($dataDirectory)) {
             throw new RuntimeException('The restaurant data directory could not be created.');
         }
@@ -83,7 +151,7 @@ function restaurant_db(): PDO
     }
     $engine = $mysql ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : '';
     $db->exec("CREATE TABLE IF NOT EXISTS restaurant_schema_version (version INTEGER PRIMARY KEY){$engine}");
-    if ((int) $db->query('SELECT COALESCE(MAX(version), 0) FROM restaurant_schema_version')->fetchColumn() >= 6) {
+    if ((int) $db->query('SELECT COALESCE(MAX(version), 0) FROM restaurant_schema_version')->fetchColumn() >= 7) {
         return $db;
     }
 
@@ -102,6 +170,8 @@ function restaurant_db(): PDO
         "CREATE TABLE IF NOT EXISTS orders (
             id {$id}, customer_name VARCHAR(100) NOT NULL, customer_phone VARCHAR(30) NOT NULL,
             item_name VARCHAR(100) NOT NULL, quantity {$integer} NOT NULL, unit_price {$integer} NOT NULL,
+            subtotal {$integer} NOT NULL DEFAULT 0, delivery_fee {$integer} NOT NULL DEFAULT 0,
+            tax_amount {$integer} NOT NULL DEFAULT 0, discount {$integer} NOT NULL DEFAULT 0,
             total_price {$integer} NOT NULL, payment_method VARCHAR(50) NOT NULL,
             customer_token_hash CHAR(64) NULL,
             status VARCHAR(40) NOT NULL DEFAULT 'awaiting_verification', queue_position {$integer} NULL,
@@ -174,6 +244,9 @@ function restaurant_db(): PDO
         ){$engine}",
         "CREATE TABLE IF NOT EXISTS installation_settings (
             setting_key VARCHAR(50) PRIMARY KEY, setting_value VARCHAR(50) NOT NULL
+        ){$engine}",
+        "CREATE TABLE IF NOT EXISTS restaurant_settings (
+            setting_key VARCHAR(50) PRIMARY KEY, setting_value VARCHAR(1000) NOT NULL
         ){$engine}"
     ];
     foreach ($tables as $sql) {
@@ -205,7 +278,12 @@ function restaurant_db(): PDO
     $ensureColumn('orders', 'delivery_address', "VARCHAR(500) NOT NULL DEFAULT ''");
     $ensureColumn('orders', 'notes', "VARCHAR(2000) NOT NULL DEFAULT ''");
     $ensureColumn('orders', 'customer_token_hash', 'CHAR(64) NULL');
+    $ensureColumn('orders', 'subtotal', 'INTEGER NOT NULL DEFAULT 0');
+    $ensureColumn('orders', 'delivery_fee', 'INTEGER NOT NULL DEFAULT 0');
+    $ensureColumn('orders', 'tax_amount', 'INTEGER NOT NULL DEFAULT 0');
+    $ensureColumn('orders', 'discount', 'INTEGER NOT NULL DEFAULT 0');
     $ensureColumn('ingredients', 'image_path', "VARCHAR(80) NOT NULL DEFAULT ''");
+    $db->exec('UPDATE orders SET subtotal = total_price WHERE subtotal = 0 AND total_price > 0');
     $indexes = [
         ['orders', 'orders_queue_idx', 'status, queue_position, id'],
         ['orders', 'orders_created_idx', 'created_at, status'],
@@ -255,7 +333,7 @@ function restaurant_db(): PDO
             $insert->execute(['T' . $number, $number <= 4 ? 2 : 4]);
         }
     }
-    $db->exec('INSERT INTO restaurant_schema_version (version) VALUES (6)');
+    $db->exec('INSERT INTO restaurant_schema_version (version) VALUES (7)');
 
     return $db;
 }
@@ -270,7 +348,8 @@ function restaurant_start_session(): void
     ini_set('session.use_only_cookies', '1');
     session_set_cookie_params([
         'httponly' => true,
-        'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+        'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https'),
         'samesite' => 'Lax'
     ]);
     session_start();

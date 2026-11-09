@@ -26,13 +26,34 @@ foreach ($menuItems as $item) {
         $menuCategories[] = $categoryLabel;
     }
 }
-$restaurantName = 'KIPS';
+$settings = restaurant_settings();
+$restaurantName = $settings['restaurant_name'] ?: 'KIPS';
+$restaurantTagline = $settings['restaurant_tagline'] ?: 'Fresh • Fast • Flavorful';
+$currencySymbol = $settings['currency_symbol'] ?: 'MK';
+$openingHours = $settings['opening_hours'];
+$openingNote = $settings['opening_note'];
+$whatsappDigits = preg_replace('/\D+/', '', $settings['whatsapp_number']) ?: '';
+$whatsappUrl = $whatsappDigits !== '' ? 'https://wa.me/' . $whatsappDigits : '';
+$deliveryFeeSetting = max(0, (int) $settings['delivery_fee']);
+$taxRateSetting = max(0.0, min(100.0, (float) $settings['tax_rate']));
+$money = static fn ($amount): string => $currencySymbol . ' ' . number_format((float) $amount, 0);
 $availableTables = restaurant_db()->query("SELECT table_number, capacity FROM restaurant_tables WHERE status = 'available' ORDER BY id")->fetchAll();
 $restaurantStats = [
     ['value' => number_format((int) restaurant_db()->query('SELECT COUNT(*) FROM customers')->fetchColumn()), 'label' => 'Registered guests'],
     ['value' => number_format((int) restaurant_db()->query("SELECT COUNT(*) FROM orders WHERE status = 'completed'")->fetchColumn()), 'label' => 'Orders completed'],
     ['value' => number_format(count($menuItems)), 'label' => 'Meals on our menu']
 ];
+
+$heroItem = $menuItems[0] ?? null;
+$heroImage = 'images/menu-hero.jpg';
+if ($heroItem) {
+    if (!empty($heroItem['image_path'])) {
+        $heroImage = 'api.php?action=menu_image&id=' . (int) $heroItem['id'] . '&v=' . rawurlencode($heroItem['image_path']);
+    } elseif (!empty($heroItem['image_url'])) {
+        $heroImage = $heroItem['image_url'];
+    }
+}
+$heroDishName = $heroItem['name'] ?? 'Fresh from our kitchen';
 
 $features = [
     ['number' => '01', 'title' => 'Kitchen fresh', 'text' => 'Every order is prepared with fresh ingredients and careful attention.'],
@@ -53,8 +74,8 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="<?= htmlspecialchars(restaurant_csrf_token(), ENT_QUOTES, 'UTF-8') ?>">
     <meta name="referrer" content="no-referrer">
-    <title>KIPS RESTAURANT</title>
-    <meta name="description" content="Fresh, tasty meals and fast delivery from KIPS Restaurant.">
+    <title><?= htmlspecialchars($restaurantName) ?> RESTAURANT</title>
+    <meta name="description" content="<?= htmlspecialchars('Fresh, tasty meals and fast delivery from ' . $restaurantName . '. ' . $restaurantTagline) ?>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -66,8 +87,8 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
             <button class="mobile-nav-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="main-nav">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
             </button>
-            <a class="brand" href="index.php" aria-label="KIPS Restaurant home">
-                <span class="brand-mark">K</span>
+            <a class="brand" href="index.php" aria-label="<?= htmlspecialchars($restaurantName, ENT_QUOTES, 'UTF-8') ?> home">
+                <span class="brand-mark"><?= htmlspecialchars(mb_substr($restaurantName, 0, 1)) ?></span>
                 <span><?= htmlspecialchars($restaurantName) ?></span>
             </a>
 
@@ -88,10 +109,10 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
         <section class="hero">
             <div class="container hero-inner">
                 <div class="hero-copy">
-                    <p class="eyebrow">Fresh • Fast • Flavorful</p>
+                    <p class="eyebrow"><?= htmlspecialchars($restaurantTagline) ?></p>
                     <h1>Enjoy delicious meals made for every craving.</h1>
                     <p class="lead">
-                        From crispy chicken to comforting rice bowls, KIPS serves hot meals with quick delivery
+                        From crispy chicken to comforting rice bowls, <?= htmlspecialchars($restaurantName) ?> serves hot meals with quick delivery
                         and warm hospitality.
                     </p>
 
@@ -116,7 +137,7 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                         <div class="dish-info">
                             <h3><?= htmlspecialchars($menuItems[0]['name'] ?? 'Fresh from our kitchen') ?></h3>
                             <p><?= htmlspecialchars($menuItems[0]['description'] ?? 'Explore our menu for today’s selection.') ?></p>
-                            <?php if ($menuItems): ?><span>MK <?= number_format((float) $menuItems[0]['price'], 0) ?></span><?php endif; ?>
+                            <?php if ($menuItems): ?><span><?= htmlspecialchars($money($menuItems[0]['price'])) ?></span><?php endif; ?>
                         </div>
                     </div>
 
@@ -135,10 +156,28 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
         <?php if ($page === 'menu'): ?>
         <section id="menu" class="menu-section">
             <div class="container">
-                <div class="section-heading">
-                    <p class="eyebrow">Our menu</p>
-                    <h2>Made fresh for your appetite</h2>
-                    <p class="menu-intro">Open daily from 9:00 AM to 10:30 PM. Need directions or help? <a href="https://wa.me/265983572473" target="_blank" rel="noopener noreferrer">Chat with us on WhatsApp.</a></p>
+                <div class="menu-hero">
+                    <div class="menu-hero-copy">
+                        <p class="eyebrow">Our menu</p>
+                        <h1>Made fresh for your appetite</h1>
+                        <p class="menu-intro"><?= htmlspecialchars($openingNote) ?> from <?= htmlspecialchars($openingHours) ?>. Place your order online and our team will confirm it with you.</p>
+                        <div class="menu-hero-actions">
+                            <a class="primary-btn" href="#menuGrid">Order now</a>
+                            <a class="secondary-btn" href="index.php?page=reserve">Reserve a table</a>
+                        </div>
+                        <ul class="menu-hero-highlights">
+                            <li>Made to order</li>
+                            <li>Dine-in &amp; takeaway</li>
+                            <li>Delivery available</li>
+                        </ul>
+                    </div>
+                    <div class="menu-hero-media">
+                        <img src="<?= htmlspecialchars($heroImage, ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars($heroDishName) ?>" fetchpriority="high" decoding="async">
+                        <span class="menu-hero-badge">
+                            <strong>Chef's pick</strong>
+                            <small><?= htmlspecialchars($heroDishName) ?></small>
+                        </span>
+                    </div>
                 </div>
 
                 <div class="menu-filters" role="group" aria-label="Filter menu by category">
@@ -148,10 +187,13 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                     <?php endforeach; ?>
                 </div>
 
-                <div class="menu-grid">
+                <div class="menu-grid" id="menuGrid">
                     <?php foreach ($menuItems as $index => $item): ?>
-                        <article class="menu-card" data-category="<?= htmlspecialchars($menuCategoryById[(int) $item['id']], ENT_QUOTES, 'UTF-8') ?>">
+                        <article class="menu-card<?= $index === 0 ? ' menu-card--featured' : '' ?>" data-category="<?= htmlspecialchars($menuCategoryById[(int) $item['id']], ENT_QUOTES, 'UTF-8') ?>" style="--i: <?= (int) $index ?>">
                             <div class="menu-thumb <?= htmlspecialchars($item['thumb']) ?>">
+                                <?php if ($index === 0): ?>
+                                    <span class="menu-badge">Featured</span>
+                                <?php endif; ?>
                                 <?php if (!empty($item['image_path'])): ?>
                                     <img src="api.php?action=menu_image&amp;id=<?= (int) $item['id'] ?>&amp;v=<?= rawurlencode($item['image_path']) ?>" alt="<?= htmlspecialchars($item['name']) ?>" loading="lazy" decoding="async">
                                 <?php elseif (!empty($item['image_url'])): ?>
@@ -162,7 +204,7 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                                 <h3><?= htmlspecialchars($item['name']) ?></h3>
                                 <p><?= htmlspecialchars($item['description']) ?></p>
                                 <div class="menu-meta">
-                                    <span>MK <?= number_format((float) $item['price'], 0) ?></span>
+                                    <span><?= htmlspecialchars($money($item['price'])) ?></span>
                                     <button class="add-btn" data-item="<?= htmlspecialchars($item['name']) ?>" data-price="<?= (int) $item['price'] ?>">Add</button>
                                 </div>
                             </div>
@@ -176,9 +218,10 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                 <section id="menuCartSummary" class="cart-summary menu-cart-summary" aria-labelledby="menuCartTitle" hidden>
                     <div class="cart-summary-heading">
                         <h3 id="menuCartTitle">Your basket <span id="menuCartCount"></span></h3>
-                        <strong id="menuCartTotal">MK 0</strong>
+                        <strong id="menuCartTotal"><?= htmlspecialchars($money(0)) ?></strong>
                     </div>
                     <div id="menuCartItems" class="cart-items"></div>
+                    <p class="cart-summary-note">Subtotal only — delivery fee and VAT are added at checkout.</p>
                     <button id="menuCartCheckout" type="button" class="primary-btn">Continue to checkout</button>
                 </section>
             </div>
@@ -209,9 +252,10 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                         <h3 id="cartTitle">Your cart</h3>
                         <div id="cartItems" class="cart-items"></div>
                         <div class="total-row">
-                            <span>Total</span>
-                            <strong id="totalPrice">MK 0</strong>
+                            <span>Subtotal</span>
+                            <strong id="totalPrice"><?= htmlspecialchars($money(0)) ?></strong>
                         </div>
+                        <p class="cart-summary-note">Delivery fee and VAT are added when you choose an order type at checkout.</p>
                     </section>
 
                     <p class="payment-choice-note">Choose your payment method after our team confirms your order.</p>
@@ -248,7 +292,7 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
         <section id="about" class="about-section">
             <div class="container about-grid">
                 <div>
-                    <p class="eyebrow">Why KIPS</p>
+                    <p class="eyebrow">Why <?= htmlspecialchars($restaurantName) ?></p>
                     <h2>Fresh ingredients. Honest flavor. Great service.</h2>
                 </div>
 
@@ -277,6 +321,10 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                     <p id="customerOrderStatus" role="status" aria-live="polite">Loading your order…</p>
                     <div id="customerOrderSummary" class="customer-order-summary" hidden>
                         <div><span>Items</span><strong id="customerOrderItems"></strong></div>
+                        <div><span>Subtotal</span><strong id="customerOrderSubtotal"></strong></div>
+                        <div id="customerOrderDeliveryRow" hidden><span>Delivery fee</span><strong id="customerOrderDeliveryFee"></strong></div>
+                        <div id="customerOrderTaxRow" hidden><span>VAT / tax</span><strong id="customerOrderTax"></strong></div>
+                        <div id="customerOrderDiscountRow" hidden><span>Discount</span><strong id="customerOrderDiscount"></strong></div>
                         <div><span>Total</span><strong id="customerOrderTotal"></strong></div>
                         <div><span>Order type</span><strong id="customerOrderType"></strong></div>
                         <div id="customerOrderAddressRow" hidden><span>Delivery address</span><strong id="customerOrderAddress"></strong></div>
@@ -295,7 +343,8 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                         <p>Saving a preference does not send money. Staff will confirm payment after receiving it.</p>
                     </div>
                     <button id="refreshCustomerOrder" type="button" class="secondary-btn">Refresh order status</button>
-                    <p><a href="index.php">Return to KIPS Restaurant</a></p>
+                    <button id="cancelCustomerOrder" type="button" class="secondary-btn danger-outline" hidden>Cancel this order</button>
+                    <p><a href="index.php">Return to <?= htmlspecialchars($restaurantName) ?> Restaurant</a></p>
                 </div>
             </div>
         </section>
@@ -327,10 +376,13 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                     <span>Order</span>
                     <strong id="modalOrderItem">Chips & Chicken</strong>
                 </div>
-                <div>
-                    <span>Total</span>
-                    <strong id="modalTotalPrice">MK 8,900</strong>
-                </div>
+            </div>
+
+            <div class="modal-breakdown" aria-live="polite">
+                <div class="total-row"><span>Subtotal</span><strong id="modalSubtotal"><?= htmlspecialchars($money(0)) ?></strong></div>
+                <div class="total-row" id="modalDeliveryRow" hidden><span>Delivery fee</span><strong id="modalDeliveryFee"><?= htmlspecialchars($money(0)) ?></strong></div>
+                <div class="total-row" id="modalTaxRow" hidden><span id="modalTaxLabel">VAT</span><strong id="modalTaxAmount"><?= htmlspecialchars($money(0)) ?></strong></div>
+                <div class="total-row total-row-strong"><span>Total</span><strong id="modalTotalPrice"><?= htmlspecialchars($money(0)) ?></strong></div>
             </div>
 
             <label for="customerName">Customer name</label>
@@ -377,8 +429,8 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                 <div><span>Next step</span><strong>Wait for staff confirmation</strong></div>
                 <div><span>Order type</span><strong id="confirmationType"></strong></div>
             </div>
-            <p id="confirmationOrderMessage" class="confirmation-note">Our team will contact you manually. After they confirm your order, open your private link to choose a payment method.</p>
-            <a id="confirmationOrderLink" class="primary-btn confirmation-order-link" href="#">Open private order link</a>
+            <p id="confirmationOrderMessage" class="confirmation-note">Our team will contact you to confirm the order. Open your private link to follow progress and choose a payment method after confirmation.</p>
+            <a id="confirmationOrderLink" class="secondary-btn confirmation-order-link" href="#">Open private order link</a>
             <button id="copyOrderLink" class="secondary-btn" type="button">Copy order link</button>
             <button id="doneOrderConfirmation" class="primary-btn" type="button">Done</button>
         </section>
@@ -387,43 +439,58 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
     <footer class="site-footer">
         <div class="container footer-container">
             <div class="footer-main">
-                <section class="footer-brand" aria-label="About KIPS Restaurant">
-                    <a class="brand footer-brand-link" href="index.php" aria-label="KIPS Restaurant home">
-                        <span class="brand-mark">K</span>
-                        <span>KIPS <small>RESTAURANT</small></span>
+                <section class="footer-brand" aria-label="About <?= htmlspecialchars($restaurantName, ENT_QUOTES, 'UTF-8') ?>">
+                    <a class="brand footer-brand-link" href="index.php" aria-label="<?= htmlspecialchars($restaurantName, ENT_QUOTES, 'UTF-8') ?> home">
+                        <span class="brand-mark"><?= htmlspecialchars(mb_substr($restaurantName, 0, 1)) ?></span>
+                        <span><?= htmlspecialchars($restaurantName) ?> <small>RESTAURANT</small></span>
                     </a>
                     <p>Fresh, fast and flavorful meals, made with care and served with a smile.</p>
                 </section>
 
                 <section class="footer-hours" aria-labelledby="footerHoursTitle">
                     <h2 id="footerHoursTitle">Opening hours</h2>
-                    <p>Open daily</p>
-                    <strong>9:00 AM – 10:30 PM</strong>
+                    <p><?= htmlspecialchars($openingNote) ?></p>
+                    <strong><?= htmlspecialchars($openingHours) ?></strong>
                 </section>
 
-                <nav class="footer-contact" aria-label="Connect with KIPS Restaurant">
+                <nav class="footer-contact" aria-label="Connect with <?= htmlspecialchars($restaurantName, ENT_QUOTES, 'UTF-8') ?>">
                     <h2>Stay connected</h2>
-                    <a href="https://wa.me/265983572473" target="_blank" rel="noopener noreferrer">
+                    <?php if ($whatsappUrl): ?>
+                    <a href="<?= htmlspecialchars($whatsappUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener noreferrer">
                         <span class="footer-social-badge"><svg class="footer-social-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 11.7a8.4 8.4 0 0 1-12.4 7.4L3 20.5l1.5-4.9a8.4 8.4 0 1 1 16-3.9Z"></path><path d="M8.8 8.2c.2-.5.4-.5.7-.5h.5c.2 0 .4.1.5.4l.8 1.8c.1.2.1.4 0 .5l-.5.7c-.2.2-.2.4 0 .6.5.8 1.2 1.5 2 2 .2.1.4.2.6 0l.7-.8c.2-.2.4-.2.6-.1l1.7.8c.3.1.4.3.4.5 0 .4-.2 1.1-.6 1.4-.4.4-1 .6-1.6.5-1-.1-2.3-.7-3.8-2-1.3-1.1-2.2-2.5-2.5-3.5-.3-.8 0-1.7.5-2.3Z"></path></svg></span>
-                        <span><strong>WhatsApp</strong><small>0983 572 473</small></span>
+                        <span><strong>WhatsApp</strong><small><?= htmlspecialchars($settings['phone_display'] ?: $whatsappDigits) ?></small></span>
                     </a>
-                    <a href="https://www.facebook.com/search/top/?q=Reece%20Effects" target="_blank" rel="noopener noreferrer">
+                    <?php endif; ?>
+                    <?php if ($settings['facebook_url']): ?>
+                    <a href="<?= htmlspecialchars($settings['facebook_url'], ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener noreferrer">
                         <span class="footer-social-badge"><svg class="footer-social-icon footer-facebook-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 21v-8h2.7l.4-3.1h-3.1v-2c0-.9.3-1.5 1.6-1.5h1.7V3.6c-.3 0-1.3-.1-2.4-.1-2.4 0-4 1.5-4 4.1v2.3H7.7V13h2.7v8h3.1Z"></path></svg></span>
                         <span><strong>Facebook</strong><small>Follow our page</small></span>
                     </a>
-                    <a href="https://www.instagram.com/mkupadoingthings/" target="_blank" rel="noopener noreferrer">
+                    <?php endif; ?>
+                    <?php if ($settings['instagram_url']): ?>
+                    <a href="<?= htmlspecialchars($settings['instagram_url'], ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener noreferrer">
                         <span class="footer-social-badge"><svg class="footer-social-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="5"></rect><circle cx="12" cy="12" r="4"></circle><circle class="footer-instagram-dot" cx="17.7" cy="6.8" r="1"></circle></svg></span>
-                        <span><strong>Instagram</strong><small>@mkupadoingthings</small></span>
+                        <span><strong>Instagram</strong><small>Follow our page</small></span>
                     </a>
+                    <?php endif; ?>
                 </nav>
             </div>
             <div class="footer-bottom">
-                <p>© <?= date('Y') ?> KIPS Restaurant. All rights reserved.</p>
+                <p>© <?= date('Y') ?> <?= htmlspecialchars($restaurantName) ?> Restaurant. All rights reserved.</p>
                 <a href="admin.php">Administrator portal <span aria-hidden="true">→</span></a>
             </div>
         </div>
     </footer>
 
-    <script src="script.js?v=3-<?= (int) filemtime(__DIR__ . '/script.js') ?>"></script>
+    <script type="application/json" id="kipsSettings"><?= json_encode([
+        'restaurant_name' => $restaurantName,
+        'currency_symbol' => $currencySymbol,
+        'whatsapp_url' => $whatsappUrl,
+        'phone_display' => $settings['phone_display'],
+        'country_code' => preg_replace('/\D+/', '', $settings['country_code']) ?: '265',
+        'delivery_fee' => $deliveryFeeSetting,
+        'tax_rate' => $taxRateSetting
+    ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
+    <script src="script.js?v=4-<?= (int) filemtime(__DIR__ . '/script.js') ?>"></script>
 </body>
 </html>

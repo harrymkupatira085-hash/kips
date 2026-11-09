@@ -17,6 +17,7 @@ KIPS is a PHP restaurant ordering and operations app with MySQL support, a local
    ```
 
    Alternatively, set `KIPS_DB_DSN` to a complete PDO DSN and use `KIPS_DB_USER` / `KIPS_DB_PASSWORD` for its credentials. Keep credentials outside the web root and source control, and restart Apache after changing its environment.
+   On shared hosting without Apache environment control, copy `config.example.php` to `config.local.php` and fill in the values there. `config.local.php` is read from disk only and falls back to environment variables for any empty value.
 4. If `KIPS_DB_HOST` and `KIPS_DB_DSN` are unset, the app uses SQLite and stores its database outside `htdocs` in `C:\xampp\kips-data`. `KIPS_DATA_DIR` can select another private directory.
 5. Visit `admin.php` to create the first administrator. Then sign in and use **Team** to create individual manager, waiter, chef and cashier accounts. Staff passwords must be at least 12 characters.
 
@@ -37,13 +38,18 @@ The included Dockerfile listens on Render's default web-service port 10000 and i
 - Role-aware staff accounts and server-side permission checks.
 - Menu and availability management, including local food-photo uploads; a multi-item customer cart; and dine-in, takeaway and delivery orders with a required delivery address.
 - Order verification, a manually reorderable kitchen queue, and 15-second dashboard refresh.
+- Staff new-order alerts: an optional chime, desktop notification, flashing tab title and unread count when a customer order is waiting for confirmation.
+- A dedicated kitchen display with per-order elapsed time, one-tap status changes and a full-screen mode.
+- A **Settings** page for the restaurant name, tagline, contact details, opening hours, social links, currency symbol, delivery fee and tax rate; the storefront and receipts update immediately.
+- Delivery fee and tax applied to order totals, plus an optional staff discount; print-friendly customer receipts and kitchen tickets.
 - Reservations with table assignment and overlap checks, restaurant tables, customer records and loyalty points.
 - Suppliers, ingredient inventory, stock movements, recipe-based stock deduction, and low-stock notifications.
 - Optional JPEG, JFIF, PNG or WebP stock images (up to 10 MB) uploaded by inventory staff and stored in the private `KIPS_DATA_DIR` directory. Ensure the Apache/PHP account can write to this directory.
 - Menu food photos can also be uploaded from the administrator's device; JPEG, JFIF, PNG and WebP files up to 10 MB are stored in the same private data directory and served to the public menu through the application.
-- Customers receive an on-screen order reference and private status link. Staff manually contact and confirm the order; after staff approval, the customer uses the link to choose a payment preference. SMS delivery is not enabled and requires a configured SMS gateway.
+- Customers receive an on-screen order reference and private status link, and can open a pre-filled WhatsApp message to the restaurant for confirmation. Unverified orders can be cancelled from the link; once staff confirm an order it can no longer be cancelled online. SMS delivery is not enabled and requires a configured SMS gateway.
 - Cash, bank card, Airtel Money, TNM Mpamba and bank-transfer payment recording, receipt views and transaction history.
 - Sales, recorded-expense and estimated recipe-cost reporting; staff audit history; administrator-only JSON data export.
+- CSV exports for orders, payments and expenses, and an in-app first-run checklist plus self-service password change for signed-in staff.
 
 ### Payment processing
 

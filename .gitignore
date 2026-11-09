@@ -1,0 +1,13 @@
+# Local database credentials (copy from config.example.php)
+config.local.php
+
+# Local databases, uploads and exported backups
+*.sqlite
+*.sqlite-*
+kips-data/
+uploads/
+node_modules/
+
+# Environment files
+.env
+.env.*

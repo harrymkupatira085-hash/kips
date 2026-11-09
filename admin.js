@@ -12,15 +12,16 @@ const appToast = document.getElementById('appToast');
 const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 const rolePermissions = {
     administrator: ['*'],
-    manager: ['dashboard', 'orders', 'menu', 'reservations', 'tables', 'customers', 'inventory', 'suppliers', 'expenses', 'employees', 'payments', 'reports', 'audit'],
-    waiter: ['dashboard', 'orders', 'reservations', 'tables', 'customers'],
-    chef: ['dashboard', 'orders', 'inventory'],
-    cashier: ['dashboard', 'orders', 'customers', 'payments', 'reports']
+    manager: ['dashboard', 'orders', 'kitchen', 'menu', 'reservations', 'tables', 'customers', 'inventory', 'suppliers', 'expenses', 'employees', 'payments', 'reports', 'audit'],
+    waiter: ['dashboard', 'orders', 'kitchen', 'reservations', 'tables', 'customers'],
+    chef: ['dashboard', 'orders', 'kitchen', 'inventory'],
+    cashier: ['dashboard', 'orders', 'kitchen', 'customers', 'payments', 'reports']
 };
 const pageTitles = {
-    dashboard: 'Overview', orders: 'Orders', menu: 'Menu management', reservations: 'Reservations',
+    dashboard: 'Overview', orders: 'Orders', kitchen: 'Kitchen display', menu: 'Menu management', reservations: 'Reservations',
     tables: 'Tables', customers: 'Customers', inventory: 'Inventory', suppliers: 'Suppliers',
-    expenses: 'Expenses', employees: 'Team management', payments: 'Payments', reports: 'Reports', audit: 'Activity log'
+    expenses: 'Expenses', employees: 'Team management', payments: 'Payments', reports: 'Reports', audit: 'Activity log',
+    settings: 'Restaurant settings'
 };
 const dataSchemas = {
     reservations: [
@@ -58,6 +59,17 @@ let activeView = 'dashboard';
 let moduleRecords = {};
 let toastTimer;
 let overviewSalesRange = 7;
+let startupViewPending = true;
+let knownOrderIds = new Set();
+let ordersSeeded = false;
+let unseenOrderCount = 0;
+let titleFlashTimer = null;
+let audioContext = null;
+let baseDocumentTitle = document.title;
+let timestampsAreUtc = false;
+const alertPreferences = {
+    enabled: localStorage.getItem('kips-alerts') !== 'off'
+};
 
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (character) => ({
@@ -65,8 +77,12 @@ function escapeHtml(value) {
     })[character]);
 }
 
+function currencySymbol() {
+    return dashboardData?.settings?.currency_symbol || 'MK';
+}
+
 function formatPrice(value) {
-    return `MK ${Number(value || 0).toLocaleString('en-US')}`;
+    return `${currencySymbol()} ${Number(value || 0).toLocaleString('en-US')}`;
 }
 
 function canAccess(view) {
@@ -147,20 +163,199 @@ function toast(message, error = false) {
     toastTimer = window.setTimeout(() => appToast.classList.remove('visible'), 3600);
 }
 
-function dateLabel(value) {
+function parseTimestamp(value, utc = false) {
+    if (!value) return null;
+    let text = String(value).replace(' ', 'T');
+    if (utc && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(text)) text += 'Z';
+    const date = new Date(text);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function dateLabel(value, utc = false) {
     if (!value) return '—';
-    const date = new Date(String(value).replace(' ', 'T'));
-    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+    const date = parseTimestamp(value, utc);
+    return date ? date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : String(value);
 }
 
 function currencyCompact(value) {
-    return `MK ${Number(value || 0).toLocaleString('en-US')}`;
+    return `${currencySymbol()} ${Number(value || 0).toLocaleString('en-US')}`;
 }
+
+function whatsappGuestLink(phone, message) {
+    let digits = String(phone || '').replace(/\D/g, '');
+    const countryCode = String(dashboardData?.settings?.country_code || '265').replace(/\D/g, '') || '265';
+    if (digits.startsWith('0')) digits = countryCode + digits.slice(1);
+    if (digits.length < 8) return '';
+    return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+}
+
+function guestStatusMessage(order) {
+    const name = order.customer_name || 'there';
+    const restaurant = dashboardData?.settings?.restaurant_name || 'KIPS';
+    const total = formatPrice(order.total_price);
+    const base = `Hello ${name}, this is ${restaurant}. Order #${order.id}`;
+    if (order.status === 'verified') return `${base} is confirmed and we are getting it ready. Please be ready to receive your meal. Total: ${total}.`;
+    if (order.status === 'preparing') return `${base} is being prepared. Please be ready to receive your meal. Total: ${total}.`;
+    if (order.status === 'completed') return `${base} is ready. Please receive your meal. Thank you!`;
+    if (order.status === 'awaiting_verification') return `${base} (${total}) has been received. Please confirm the details so we can start preparing it.`;
+    return `${base}.`;
+}
+
+function guestNotifyLabel(order) {
+    if (order.status === 'verified') return 'Tell guest: confirmed';
+    if (order.status === 'preparing') return 'Tell guest: preparing';
+    if (order.status === 'completed') return 'Tell guest: ready';
+    return 'WhatsApp guest';
+}
+
+function applyBranding(settings = {}) {
+    const name = settings.restaurant_name || 'KIPS';
+    document.getElementById('brandName').textContent = name;
+    document.getElementById('sidebarRestaurantName').textContent = `${name} Restaurant`;
+    document.getElementById('brandMark').textContent = name.trim().charAt(0).toUpperCase() || 'K';
+    document.getElementById('sidebarAvatar').textContent = name.trim().charAt(0).toUpperCase() || 'K';
+    const topbarBrand = document.getElementById('topbarBrand');
+    if (topbarBrand) topbarBrand.textContent = name;
+    baseDocumentTitle = `${name} · Restaurant operations`;
+    document.title = unseenOrderCount ? `(${unseenOrderCount}) New order · ${baseDocumentTitle}` : baseDocumentTitle;
+}
+
+function renderAlertToggle() {
+    const button = document.getElementById('alertToggleBtn');
+    const label = document.getElementById('alertToggleLabel');
+    if (!button) return;
+    button.setAttribute('aria-pressed', String(alertPreferences.enabled));
+    button.classList.toggle('is-off', !alertPreferences.enabled);
+    if (label) label.textContent = alertPreferences.enabled ? 'Alerts on' : 'Alerts off';
+}
+
+function unlockAudio() {
+    if (audioContext) {
+        if (audioContext.state === 'suspended') audioContext.resume().catch(() => {});
+        return;
+    }
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    try {
+        audioContext = new AudioContextClass();
+    } catch {
+        audioContext = null;
+    }
+}
+
+function playOrderChime() {
+    if (!alertPreferences.enabled) return;
+    unlockAudio();
+    if (!audioContext) return;
+    try {
+        const start = audioContext.currentTime;
+        [880, 1174.66].forEach((frequency, index) => {
+            const oscillator = audioContext.createOscillator();
+            const gain = audioContext.createGain();
+            const at = start + index * 0.18;
+            oscillator.type = 'sine';
+            oscillator.frequency.value = frequency;
+            gain.gain.setValueAtTime(0.0001, at);
+            gain.gain.exponentialRampToValueAtTime(0.25, at + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.32);
+            oscillator.connect(gain).connect(audioContext.destination);
+            oscillator.start(at);
+            oscillator.stop(at + 0.34);
+        });
+    } catch {
+        // Audio is a convenience; never block order handling on it.
+    }
+}
+
+async function requestAlertPermission() {
+    if (!('Notification' in window) || Notification.permission !== 'default') return;
+    try {
+        await Notification.requestPermission();
+    } catch {
+        // Some browsers only allow this during a click; the toggle click retries it.
+    }
+}
+
+function showDesktopAlert(newOrders) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const first = newOrders[0];
+    const title = `${newOrders.length} new order${newOrders.length === 1 ? '' : 's'} awaiting confirmation`;
+    const body = newOrders.length === 1
+        ? `#${first.id} · ${first.customer_name} · ${formatPrice(first.total_price)}`
+        : `#${first.id} ${first.customer_name} and ${newOrders.length - 1} more guest${newOrders.length === 2 ? '' : 's'}.`;
+    try {
+        const notification = new Notification(title, { body, tag: 'kips-new-orders' });
+        notification.onclick = () => {
+            window.focus();
+            notification.close();
+            if (canAccess('orders')) navigate('orders');
+        };
+    } catch {
+        // Notifications can be disabled at the OS level.
+    }
+}
+
+function updateAlertTitle() {
+    window.clearInterval(titleFlashTimer);
+    titleFlashTimer = null;
+    if (!unseenOrderCount) {
+        document.title = baseDocumentTitle;
+        return;
+    }
+    let showCount = true;
+    const apply = () => {
+        document.title = showCount
+            ? `(${unseenOrderCount}) New order${unseenOrderCount === 1 ? '' : 's'} · ${baseDocumentTitle}`
+            : baseDocumentTitle;
+        showCount = !showCount;
+    };
+    apply();
+    titleFlashTimer = window.setInterval(apply, 1400);
+}
+
+function clearUnseenOrders() {
+    if (!unseenOrderCount) return;
+    unseenOrderCount = 0;
+    updateAlertTitle();
+}
+
+function trackOrders(data) {
+    const orders = Array.isArray(data.orders) ? data.orders : [];
+    if (!ordersSeeded) {
+        ordersSeeded = true;
+        knownOrderIds = new Set(orders.map((order) => Number(order.id)));
+        return;
+    }
+    const awaiting = orders.filter((order) => order.status === 'awaiting_verification');
+    const fresh = awaiting.filter((order) => !knownOrderIds.has(Number(order.id)));
+    orders.forEach((order) => knownOrderIds.add(Number(order.id)));
+    if (!fresh.length) return;
+    unseenOrderCount += fresh.length;
+    updateAlertTitle();
+    if (alertPreferences.enabled) {
+        playOrderChime();
+        showDesktopAlert(fresh);
+    }
+    toast(`${fresh.length} new order${fresh.length === 1 ? '' : 's'} awaiting confirmation.`);
+}
+
+function initAlertControls() {
+    renderAlertToggle();
+    if ('Notification' in window && Notification.permission === 'default' && !alertPreferences.permissionAsked) {
+        alertPreferences.permissionAsked = true;
+        document.addEventListener('pointerdown', () => requestAlertPermission(), { once: true });
+    }
+}
+
+document.addEventListener('pointerdown', unlockAudio, { passive: true });
+document.addEventListener('keydown', unlockAudio);
 
 async function loadDashboard() {
     const data = await request('dashboard', {}, 'GET');
     dashboardData = data;
     currentStaff = data.staff;
+    timestampsAreUtc = Boolean(data.timestamps_utc);
+    applyBranding(data.settings);
     document.getElementById('staffName').textContent = data.staff.name || data.staff.username;
     document.getElementById('staffRole').textContent = data.staff.role.replaceAll('_', ' ');
     document.getElementById('staffAvatar').textContent = (data.staff.name || data.staff.username).trim().charAt(0).toUpperCase();
@@ -170,6 +365,15 @@ async function loadDashboard() {
     document.querySelectorAll('.side-link[data-view]').forEach((button) => {
         button.hidden = !canAccess(button.dataset.view);
     });
+    initAlertControls();
+    trackOrders(data);
+    if (startupViewPending) {
+        startupViewPending = false;
+        const requestedView = new URLSearchParams(window.location.search).get('view');
+        if (requestedView && pageTitles[requestedView] && canAccess(requestedView)) {
+            activeView = requestedView;
+        }
+    }
     authPanel.hidden = true;
     appShell.hidden = false;
     await navigate(activeView);
@@ -189,15 +393,20 @@ async function navigate(view) {
     }
     activeView = view;
     setPageHeader(view);
+    if (view === 'orders' || view === 'kitchen') clearUnseenOrders();
     document.getElementById('appSidebar').classList.remove('sidebar-open');
     if (view === 'dashboard') {
         renderOverview();
     } else if (view === 'orders') {
         renderOrders();
+    } else if (view === 'kitchen') {
+        renderKitchen();
     } else if (view === 'menu') {
         renderMenu();
     } else if (view === 'reports') {
         await renderReports();
+    } else if (view === 'settings') {
+        await renderSettings();
     } else {
         await renderModule(view);
     }
@@ -213,6 +422,7 @@ function renderOverview() {
         <p>Here’s what’s happening across your restaurant today.</p></div>
         <div class="heading-actions overview-heading-actions"><div class="overview-range-switch" role="group" aria-label="Sales chart date range"><button type="button" data-chart-range="7" aria-pressed="${overviewSalesRange === 7}">7 days</button><button type="button" data-chart-range="30" aria-pressed="${overviewSalesRange === 30}">30 days</button></div><button class="app-primary overview-create-button" id="overviewNewOrderBtn">${dashboardIcon('plus')}<span>New order</span></button></div>
     </div>
+    ${renderChecklist()}
     ${canAccess('reports') ? `<div class="overview-analytics-grid">
         <section class="app-panel payments-analytics-panel">
             <div class="panel-heading"><div><span class="app-eyebrow">REVENUE OVERVIEW</span><h2>Sales performance</h2><p>Completed payments by day</p></div><span class="panel-badge"><i></i>Live data</span></div>
@@ -248,6 +458,16 @@ function renderOverview() {
         </div></section>
     </div>`;
     drawOverviewChart(document.getElementById('salesChart'), dashboardData.sales, overviewSalesRange);
+}
+
+function renderChecklist() {
+    const items = dashboardData.checklist || [];
+    if (!items.length || items.every((item) => item.done)) return '';
+    if (localStorage.getItem('kips-checklist-dismissed') === '1') return '';
+    return `<section class="app-panel setup-checklist-panel">
+        <div class="panel-heading"><div><span class="app-eyebrow">GET SET FOR SERVICE</span><h2>Finish setting up your restaurant</h2><p>Your workspace is ready. These steps make the first shift smoother.</p></div><button class="text-action" type="button" data-dismiss-checklist>Dismiss</button></div>
+        <div class="setup-checklist">${items.map((item) => `<button type="button" class="setup-step ${item.done ? 'is-done' : ''}" data-go="${escapeHtml(item.view)}"><span class="setup-check" aria-hidden="true">${item.done ? '✓' : ''}</span><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.hint)}</small></span><span class="setup-arrow" aria-hidden="true">→</span></button>`).join('')}</div>
+    </section>`;
 }
 
 function drawOverviewChart(canvas, values, range = overviewSalesRange) {
@@ -413,7 +633,7 @@ function drawChart(canvas, values) {
 
 function renderOrders() {
     const orders = dashboardData.orders;
-    appContent.innerHTML = `<div class="page-heading"><div><span class="app-eyebrow">SERVICE &amp; KITCHEN</span><h1>Orders</h1><p>Contact the guest to confirm the order; approve it to unlock payment choice on their private link.</p></div><div class="heading-actions"><button id="newOrderBtn" class="app-primary">＋ New order</button></div></div>
+    appContent.innerHTML = `<div class="page-heading"><div><span class="app-eyebrow">SERVICE &amp; KITCHEN</span><h1>Orders</h1><p>Contact the guest to confirm the order; approve it to unlock payment choice on their private link.</p></div><div class="heading-actions"><button class="app-secondary" data-export="orders">↓ Export CSV</button><button id="kitchenViewBtn" class="app-secondary">Kitchen display</button><button id="newOrderBtn" class="app-primary">＋ New order</button></div></div>
     <div class="order-summary-strip"><span><i class="order-key key-pending"></i>Awaiting confirmation <b>${orders.filter((order) => order.status === 'awaiting_verification').length}</b></span><span><i class="order-key key-queue"></i>In queue <b>${orders.filter((order) => order.status === 'verified').length}</b></span><span><i class="order-key key-kitchen"></i>Preparing <b>${orders.filter((order) => order.status === 'preparing').length}</b></span></div>
     <div class="order-board" id="orderBoard">${orders.length ? orders.map((order) => orderCard(order, orders)).join('') : '<div class="app-panel"><p class="empty-state">No orders yet. Create a new ticket to get started.</p></div>'}</div>`;
 }
@@ -433,6 +653,10 @@ function orderCard(order, orders) {
     } else if (status === 'preparing') {
         actions = canAccess('orders') ? `<button class="mini-primary" data-action="complete" data-current-status="preparing" data-id="${order.id}">Complete order</button>` : '<span class="app-muted">In preparation</span>';
     }
+    const guestWhatsApp = whatsappGuestLink(order.customer_phone, guestStatusMessage(order));
+    if (guestWhatsApp) {
+        actions += `<a class="mini-quiet" href="${escapeHtml(guestWhatsApp)}" target="_blank" rel="noopener noreferrer">${escapeHtml(guestNotifyLabel(order))}</a>`;
+    }
     if (canAccess('payments') && Number(order.paid_amount) < Number(order.total_price)) {
         actions += `<select class="payment-method-select" aria-label="Payment method for order ${order.id}">${paymentMethods.map((method) => `<option ${order.payment_method === method ? 'selected' : ''}>${method}</option>`).join('')}</select><button class="mini-quiet" data-action="pay" data-id="${order.id}">Record payment</button>`;
     } else if (Number(order.paid_amount) >= Number(order.total_price)) {
@@ -450,9 +674,120 @@ function orderCard(order, orders) {
         <div class="ticket-customer"><span class="order-initial">${escapeHtml(order.customer_name.charAt(0).toUpperCase())}</span><span><strong>${escapeHtml(order.customer_name)}</strong><small>${escapeHtml(order.customer_phone)}</small></span></div>
         <div class="ticket-food"><strong>${escapeHtml(itemSummary)}</strong>${deliveryAddress}${order.notes ? `<p>${escapeHtml(order.notes)}</p>` : ''}</div>
         <div class="ticket-total"><span>${formatPrice(order.total_price)}</span><small>${paymentState} · ${escapeHtml(order.payment_method)}</small></div>
-        <div class="ticket-meta"><span>${dateLabel(order.created_at)}</span><button class="text-action" data-action="receipt" data-id="${order.id}">Details</button></div>
+        <div class="ticket-meta"><span>${dateLabel(order.created_at, timestampsAreUtc)}</span></div>
         <div class="ticket-actions">${actions || '<span class="app-muted">No actions available</span>'}</div>
     </article>`;
+}
+
+function kitchenElapsed(createdAt) {
+    const created = parseTimestamp(createdAt, timestampsAreUtc);
+    if (!created) return '';
+    const minutes = Math.max(0, Math.round((Date.now() - created.getTime()) / 60000));
+    return minutes < 1 ? 'Just now' : `${minutes} min ago`;
+}
+
+function renderKitchen() {
+    const orders = dashboardData.orders;
+    const queue = orders.filter((order) => order.status === 'verified');
+    const firstVerifiedId = queue.length ? Number(queue[0].id) : null;
+    const columns = [
+        { status: 'awaiting_verification', title: 'Awaiting confirmation', hint: 'Call or WhatsApp the guest, then confirm.' },
+        { status: 'verified', title: 'Confirmed queue', hint: 'Start the first ticket when you are ready.' },
+        { status: 'preparing', title: 'Preparing', hint: 'Mark ready when the food leaves the kitchen.' }
+    ];
+    appContent.innerHTML = `<div class="page-heading kitchen-heading">
+        <div><span class="app-eyebrow">KITCHEN DISPLAY</span><h1>Live service board</h1><p>Updates every 15 seconds · alerts respect the Alerts button in the top bar.</p></div>
+        <div class="heading-actions"><button id="kitchenFullscreenBtn" class="app-secondary">Full screen</button><button id="kitchenOrdersBtn" class="app-secondary">Order list</button></div>
+    </div>
+    <div class="kitchen-board">${columns.map((column) => {
+        const columnOrders = orders.filter((order) => order.status === column.status);
+        return `<section class="kitchen-column" aria-labelledby="kitchen-${column.status}">
+            <header class="kitchen-column-head"><span class="status-pill status-${column.status}">${column.title}</span><span class="kitchen-count">${columnOrders.length}</span><p>${column.hint}</p></header>
+            <div class="kitchen-column-body">${columnOrders.length ? columnOrders.map((order) => kitchenCard(order, firstVerifiedId)).join('') : '<p class="kitchen-empty">No orders in this column.</p>'}</div>
+        </section>`;
+    }).join('')}</div>`;
+}
+
+function kitchenCard(order, firstVerifiedId) {
+    const status = order.status;
+    const lines = order.lines?.length
+        ? order.lines.map((item) => `<li><strong>${escapeHtml(item.item_name)}</strong><span>× ${item.quantity}</span></li>`).join('')
+        : `<li><strong>${escapeHtml(order.item_name)}</strong><span>× ${order.quantity}</span></li>`;
+    let actions = `<button class="mini-quiet" type="button" data-kitchen-print="${order.id}">Print ticket</button>`;
+    if (status === 'awaiting_verification') {
+        actions = `<button class="mini-primary" data-action="verify" data-id="${order.id}">Confirm order</button>` + actions;
+    } else if (status === 'verified') {
+        const isNext = Number(order.id) === firstVerifiedId;
+        actions = `<button class="mini-primary" data-action="preparing" data-current-status="verified" data-id="${order.id}" ${isNext ? '' : 'disabled'}>${isNext ? 'Start preparing' : 'Waiting in queue'}</button>` + actions;
+    } else if (status === 'preparing') {
+        actions = `<button class="mini-primary" data-action="complete" data-current-status="preparing" data-id="${order.id}">Mark ready</button>` + actions;
+    }
+    const guestWhatsApp = whatsappGuestLink(order.customer_phone, guestStatusMessage(order));
+    const address = order.order_type === 'delivery' && order.delivery_address
+        ? `<p class="kitchen-address"><strong>Deliver to:</strong> ${escapeHtml(order.delivery_address)}</p>`
+        : '';
+    return `<article class="kitchen-card status-${escapeHtml(status)}">
+        <div class="kitchen-card-head"><span class="kitchen-order-number">#${order.id}</span><span class="kitchen-timer">${escapeHtml(kitchenElapsed(order.created_at))}</span></div>
+        <div class="kitchen-meta"><span>${escapeHtml(order.customer_name)}</span><span>${escapeHtml(order.order_type)}${order.table_number ? ` · ${escapeHtml(order.table_number)}` : ''}</span></div>
+        <ul class="kitchen-food">${lines}</ul>
+        ${order.notes ? `<p class="kitchen-note">${escapeHtml(order.notes)}</p>` : ''}
+        ${address}
+        <div class="kitchen-card-foot"><strong>${formatPrice(order.total_price)}</strong><span>${escapeHtml(dateLabel(order.created_at, timestampsAreUtc))}</span></div>
+        <div class="kitchen-actions">${actions}${guestWhatsApp ? `<a class="mini-quiet" href="${escapeHtml(guestWhatsApp)}" target="_blank" rel="noopener noreferrer">${escapeHtml(guestNotifyLabel(order))}</a>` : ''}</div>
+    </article>`;
+}
+
+function showKitchenTicket(orderId) {
+    const order = dashboardData.orders.find((item) => Number(item.id) === Number(orderId));
+    if (!order) return;
+    const popup = window.open('', '_blank', 'width=420,height=640');
+    if (!popup) {
+        toast('Allow pop-ups to print kitchen tickets.', true);
+        return;
+    }
+    const restaurantName = dashboardData.settings?.restaurant_name || 'KIPS';
+    const lines = order.lines?.length
+        ? order.lines.map((item) => `<tr><td>${escapeHtml(item.item_name)}</td><td>× ${item.quantity}</td></tr>`).join('')
+        : `<tr><td>${escapeHtml(order.item_name)}</td><td>× ${order.quantity}</td></tr>`;
+    popup.document.open();
+    popup.document.write(`<!doctype html><html><head><title>Kitchen ticket #${order.id}</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:18px Arial,sans-serif;max-width:360px;margin:24px auto;color:#111;padding:0 16px}h1{font-size:26px;margin-bottom:4px}small{color:#555}h2{font-size:40px;margin:12px 0}table{width:100%;border-collapse:collapse;margin:16px 0}td{padding:8px 0;border-bottom:1px dashed #bbb}td:last-child{text-align:right}.address,.notes{border:2px solid #111;padding:8px;margin:12px 0}button{width:100%;background:#111;color:#fff;border:0;border-radius:8px;padding:12px;font-weight:bold;font-size:16px}@media print{button{display:none}body{margin:0;max-width:none}}</style></head><body><h1>${escapeHtml(restaurantName)}</h1><small>KITCHEN TICKET · ${escapeHtml(order.order_type)}${order.table_number ? ' · ' + escapeHtml(order.table_number) : ''}</small><h2>Order #${order.id}</h2><p>${escapeHtml(kitchenElapsed(order.created_at))}</p><table>${lines}</table>${order.notes ? `<p class="notes"><strong>Notes:</strong> ${escapeHtml(order.notes)}</p>` : ''}${order.order_type === 'delivery' && order.delivery_address ? `<p class="address"><strong>Deliver to:</strong> ${escapeHtml(order.delivery_address)}</p>` : ''}<p><strong>${escapeHtml(order.customer_name)}</strong><br>${escapeHtml(order.customer_phone)}</p><button onclick="window.print()">Print ticket</button></body></html>`);
+    popup.document.close();
+}
+
+async function renderSettings() {
+    appContent.innerHTML = '<div class="loading-state">Loading restaurant settings…</div>';
+    try {
+        const data = await request('settings_get', {}, 'GET');
+        const settings = data.settings || {};
+        dashboardData.settings = settings;
+        appContent.innerHTML = `<div class="page-heading"><div><span class="app-eyebrow">YOUR RESTAURANT</span><h1>Restaurant settings</h1><p>These details appear on the public menu, footer, receipts and WhatsApp messages.</p></div></div>
+        <form id="settingsForm" class="settings-form">
+            <section class="app-panel"><div class="panel-heading"><div><h2>Restaurant profile</h2><p>Name, contact details and opening hours.</p></div></div>
+                <div class="settings-grid">
+                    <label>Restaurant name<input name="restaurant_name" maxlength="100" required value="${escapeHtml(settings.restaurant_name || '')}"></label>
+                    <label>Tagline<input name="restaurant_tagline" maxlength="140" value="${escapeHtml(settings.restaurant_tagline || '')}"></label>
+                    <label>Phone shown to guests<input name="phone_display" maxlength="40" value="${escapeHtml(settings.phone_display || '')}" placeholder="0983 572 473"></label>
+                    <label>WhatsApp number<input name="whatsapp_number" maxlength="30" inputmode="numeric" value="${escapeHtml(settings.whatsapp_number || '')}" placeholder="265991234567"><small>Include the country code. Used for WhatsApp chat and order confirmation.</small></label>
+                    <label>Country calling code<input name="country_code" maxlength="6" inputmode="numeric" value="${escapeHtml(settings.country_code || '265')}"><small>Used to complete local guest numbers such as 0991…</small></label>
+                    <label>Currency symbol<input name="currency_symbol" maxlength="6" value="${escapeHtml(settings.currency_symbol || 'MK')}"></label>
+                    <label>Opening note<input name="opening_note" maxlength="60" value="${escapeHtml(settings.opening_note || '')}" placeholder="Open daily"></label>
+                    <label>Opening hours<input name="opening_hours" maxlength="100" value="${escapeHtml(settings.opening_hours || '')}" placeholder="9:00 AM – 10:30 PM"></label>
+                    <label>Facebook URL<input name="facebook_url" type="url" maxlength="500" value="${escapeHtml(settings.facebook_url || '')}" placeholder="https://facebook.com/…"></label>
+                    <label>Instagram URL<input name="instagram_url" type="url" maxlength="500" value="${escapeHtml(settings.instagram_url || '')}" placeholder="https://instagram.com/…"></label>
+                </div>
+            </section>
+            <section class="app-panel"><div class="panel-heading"><div><h2>Checkout charges</h2><p>Applied to new orders and shown on the customer's checkout and private order link.</p></div></div>
+                <div class="settings-grid settings-grid-small">
+                    <label>Delivery fee<input name="delivery_fee" type="number" min="0" max="100000000" step="1" value="${escapeHtml(settings.delivery_fee || '0')}"><small>Charged only on delivery orders.</small></label>
+                    <label>VAT / tax rate (%)<input name="tax_rate" type="number" min="0" max="100" step="0.01" value="${escapeHtml(settings.tax_rate || '0')}"><small>Calculated on the food subtotal. Use 0 if prices already include tax.</small></label>
+                </div>
+                <p class="settings-note">The customer pays the subtotal plus delivery fee and tax. Staff discounts can be entered when creating an order at the counter.</p>
+            </section>
+            <div class="settings-actions"><span>Changes apply to new orders immediately.</span><button class="app-primary" type="submit">Save settings</button></div>
+        </form>`;
+    } catch (error) {
+        appContent.innerHTML = `<p class="app-message">${escapeHtml(error.message)}</p>`;
+    }
 }
 
 function renderMenu() {
@@ -477,7 +812,8 @@ function formatCell(field, value, row) {
     if (field === 'active') return Number(value) ? '<span class="status-pill status-paid">Active</span>' : '<span class="status-pill status-cancelled">Inactive</span>';
     if (field === 'loyalty_points') return `<span class="loyalty-chip">✦ ${escapeHtml(value)} pts</span>`;
     if (field === 'stock_quantity') return `<strong class="${Number(value) <= Number(row.reorder_level) ? 'stock-low' : ''}">${escapeHtml(value)}</strong>`;
-    if (field === 'created_at' || field === 'reservation_at' || field === 'expense_date' || field === 'paid_at') return escapeHtml(dateLabel(value));
+    if (field === 'created_at' || field === 'paid_at') return escapeHtml(dateLabel(value, timestampsAreUtc));
+    if (field === 'reservation_at' || field === 'expense_date') return escapeHtml(dateLabel(value));
     if (field === 'status') return `<span class="status-pill status-${escapeHtml(String(value).replaceAll(' ', '_'))}">${escapeHtml(String(value).replaceAll('_', ' '))}</span>`;
     return escapeHtml(value);
 }
@@ -485,7 +821,7 @@ function formatCell(field, value, row) {
 async function renderModule(resource) {
     const title = pageTitles[resource] || resource;
     const isReadOnly = readOnlyResources.has(resource);
-    appContent.innerHTML = `<div class="page-heading"><div><span class="app-eyebrow">RESTAURANT OPERATIONS</span><h1>${escapeHtml(title)}</h1><p>${moduleDescription(resource)}</p></div><div class="heading-actions">${resource === 'inventory' ? '<button id="inventoryAdjustBtn" class="app-secondary">＋ Stock adjustment</button>' : ''}${!isReadOnly ? `<button id="newRecordBtn" class="app-primary">＋ ${newRecordLabel(resource === 'inventory' ? 'ingredients' : resource)}</button>` : ''}</div></div>
+    appContent.innerHTML = `<div class="page-heading"><div><span class="app-eyebrow">RESTAURANT OPERATIONS</span><h1>${escapeHtml(title)}</h1><p>${moduleDescription(resource)}</p></div><div class="heading-actions">${resource === 'payments' || resource === 'expenses' ? `<button class="app-secondary" data-export="${resource}">↓ Export CSV</button>` : ''}${resource === 'inventory' ? '<button id="inventoryAdjustBtn" class="app-secondary">＋ Stock adjustment</button>' : ''}${!isReadOnly ? `<button id="newRecordBtn" class="app-primary">＋ ${newRecordLabel(resource === 'inventory' ? 'ingredients' : resource)}</button>` : ''}</div></div>
         ${resource === 'inventory' ? '<div id="recipePanel" class="app-panel recipe-panel"><div class="panel-heading"><div><h2>Recipe builder</h2><p>Link ingredients to a dish to deduct stock automatically as kitchen starts an order.</p></div><button class="text-action" data-dismiss="recipe">Close</button></div><form id="recipeForm" class="recipe-form"><label>Menu item<select name="menu_item_id" required></select></label><label>Ingredient<select name="ingredient_id" required></select></label><label>Quantity per dish<input name="quantity" type="number" step="0.001" min="0.001" required></label><button class="app-primary">Save recipe</button></form></div><div class="app-panel recipe-panel" id="adjustPanel"><div class="panel-heading"><div><h2>Adjust stock</h2><p>Record received stock, waste or a correction in the movement ledger.</p></div><button class="text-action" data-dismiss="adjust">Close</button></div><form id="adjustForm" class="recipe-form"><label>Ingredient<select name="id" required></select></label><label>Quantity change<input name="quantity_change" type="number" step="0.001" required placeholder="Use a negative number to reduce"></label><label>Reason<input name="reason" required maxlength="100" placeholder="Delivery, waste, count correction"></label><button class="app-primary">Save adjustment</button></form></div>' : ''}
         ${resource === 'reports' ? '' : ''}
         <section class="app-panel module-panel"><div id="moduleToolbar" class="module-toolbar">${resource === 'orders' ? '' : `<input id="moduleSearch" type="search" placeholder="Search ${escapeHtml(title.toLowerCase())}…" aria-label="Search ${escapeHtml(title)}"><span class="result-count" id="resultCount"></span>`}</div><div id="moduleTable"><div class="loading-state">Loading ${escapeHtml(title.toLowerCase())}…</div></div></section>
@@ -567,7 +903,7 @@ function showMenuForm(record = {}) {
     const imagePreview = record.image_path
         ? `api.php?action=menu_image&amp;id=${Number(record.id)}&amp;v=${encodeURIComponent(record.image_path)}`
         : escapeHtml(record.image_url || '');
-    appContent.insertAdjacentHTML('beforeend', `<div class="dialog-backdrop" id="recordDialog"><section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle"><button class="dialog-close" data-dismiss-dialog aria-label="Close">×</button><span class="app-eyebrow">KIPS MENU</span><h2 id="dialogTitle">${isNew ? 'Add a menu item' : 'Edit menu item'}</h2><form id="menuItemForm" class="record-form" enctype="multipart/form-data"><input type="hidden" name="id" value="${record.id || 0}"><label>Food name<input name="name" required maxlength="100" value="${escapeHtml(record.name || '')}"></label><label>Description<textarea name="description" rows="3" required maxlength="300">${escapeHtml(record.description || '')}</textarea></label><label>Price (MK)<input name="price" type="number" min="1" max="100000000" required value="${escapeHtml(record.price || '')}"></label><label>Category<input name="category" maxlength="60" required value="${escapeHtml(record.category || 'Mains')}"></label><label class="menu-image-upload">Upload food photo<input name="image" type="file" accept=".jpg,.jpeg,.jfif,image/jpeg,.png,image/png,.webp,image/webp"><small>Use a clear photo of the actual dish · JPEG, PNG or WebP · maximum 10 MB. Photos are resized and optimized to WebP with a 150 KB target when supported.</small><img class="menu-image-preview" alt="Food photo preview" ${imagePreview ? `src="${imagePreview}"` : 'hidden'}>${record.image_path ? '<span class="menu-image-remove"><input name="remove_image" type="checkbox" value="1"> Remove current uploaded photo</span>' : ''}</label><label>Or HTTPS image URL<input name="image_url" type="url" placeholder="Optional, used if no uploaded photo" value="${escapeHtml(record.image_url || '')}"></label><label>Image style<select name="thumb">${['thumb-one', 'thumb-two', 'thumb-three', 'thumb-four', 'thumb-five'].map((thumb, index) => `<option value="${thumb}" ${record.thumb === thumb ? 'selected' : ''}>Food style ${index + 1}</option>`).join('')}</select></label><p class="app-message" data-form-error role="alert"></p><div class="dialog-actions"><button type="button" class="app-secondary" data-dismiss-dialog>Cancel</button><button type="submit" class="app-primary">${isNew ? 'Add to menu' : 'Save changes'}</button></div></form></section></div>`);
+    appContent.insertAdjacentHTML('beforeend', `<div class="dialog-backdrop" id="recordDialog"><section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle"><button class="dialog-close" data-dismiss-dialog aria-label="Close">×</button><span class="app-eyebrow">KIPS MENU</span><h2 id="dialogTitle">${isNew ? 'Add a menu item' : 'Edit menu item'}</h2><form id="menuItemForm" class="record-form" enctype="multipart/form-data"><input type="hidden" name="id" value="${record.id || 0}"><label>Food name<input name="name" required maxlength="100" value="${escapeHtml(record.name || '')}"></label><label>Description<textarea name="description" rows="3" required maxlength="300">${escapeHtml(record.description || '')}</textarea></label><label>Price (MK)<input name="price" type="number" min="1" max="100000000" required value="${escapeHtml(record.price || '')}"></label><label>Category<input name="category" maxlength="60" required value="${escapeHtml(record.category || 'Mains')}"></label><label class="menu-image-upload">Upload food photo<input name="image" type="file" accept=".jpg,.jpeg,.jfif,image/jpeg,.png,image/png,.webp,image/webp"><small>Use a clear photo of the actual dish · JPEG, PNG or WebP · maximum 10 MB. Photos are resized and optimized to WebP with a 150 KB target when supported.</small><img class="menu-image-preview" alt="Food photo preview" ${imagePreview ? `src="${imagePreview}"` : 'hidden'}>${record.image_path ? '<span class="menu-image-remove"><input name="remove_image" type="checkbox" value="1"> Remove current uploaded photo</span>' : ''}</label><label>Or HTTPS image URL<input name="image_url" type="url" placeholder="Optional, used if no uploaded photo" value="${escapeHtml(record.image_url || '')}"></label><label>Image style<select name="thumb">${['thumb-one', 'thumb-two', 'thumb-three', 'thumb-four', 'thumb-five'].map((thumb, index) => `<option value="${thumb}" ${record.thumb === thumb ? 'selected' : ''}>${['Chips & chicken photo', 'Chips & beef photo', 'Nsima & chicken photo', 'Rice & beef photo', 'Cake photo'][index]}</option>`).join('')}</select></label><p class="app-message" data-form-error role="alert"></p><div class="dialog-actions"><button type="button" class="app-secondary" data-dismiss-dialog>Cancel</button><button type="submit" class="app-primary">${isNew ? 'Add to menu' : 'Save changes'}</button></div></form></section></div>`);
 }
 
 async function optimizeMenuPhoto(file) {
@@ -638,7 +974,7 @@ async function populateInventoryTools(ingredients) {
 }
 
 async function renderReports() {
-    appContent.innerHTML = `<div class="page-heading"><div><span class="app-eyebrow">THE BIGGER PICTURE</span><h1>Reports &amp; analytics</h1><p>Make clear decisions from real payments and recorded expenses.</p></div>${currentStaff.role === 'administrator' ? '<button class="app-secondary" id="downloadBackupBtn">↓ Download database backup</button>' : ''}</div><div id="reportContent" class="loading-state">Calculating your last 30 days…</div>`;
+    appContent.innerHTML = `<div class="page-heading"><div><span class="app-eyebrow">THE BIGGER PICTURE</span><h1>Reports &amp; analytics</h1><p>Make clear decisions from real payments and recorded expenses.</p></div><div class="heading-actions">${canAccess('orders') ? '<button class="app-secondary" data-export="orders">↓ Orders CSV</button>' : ''}${canAccess('payments') ? '<button class="app-secondary" data-export="payments">↓ Payments CSV</button>' : ''}${canAccess('expenses') ? '<button class="app-secondary" data-export="expenses">↓ Expenses CSV</button>' : ''}${currentStaff.role === 'administrator' ? '<button class="app-secondary" id="downloadBackupBtn">↓ Database backup</button>' : ''}</div></div><div id="reportContent" class="loading-state">Calculating your last 30 days…</div>`;
     try {
         const data = await request('reports', {}, 'GET');
         appContent.querySelector('#reportContent').innerHTML = `<div class="metric-grid report-metrics"><article class="metric-card"><span class="metric-label">Paid revenue · 30 days</span><strong>${formatPrice(data.revenue)}</strong><small>Completed payments</small></article><article class="metric-card"><span class="metric-label">Recorded expenses</span><strong>${formatPrice(data.expenses)}</strong><small>Entered operating costs</small></article><article class="metric-card"><span class="metric-label">Estimated food cost</span><strong>${formatPrice(data.food_cost)}</strong><small>Recipe-based stock deductions</small></article><article class="metric-card"><span class="metric-label">Net operating result</span><strong class="${data.profit < 0 ? 'negative-number' : ''}">${formatPrice(data.profit)}</strong><small>Revenue less recorded costs</small></article></div><div class="overview-grid report-grid"><section class="app-panel sales-panel"><div class="panel-heading"><div><h2>Daily paid sales</h2><p>Last 30 days · MK</p></div></div><div class="chart-wrap report-chart"><canvas id="reportChart" aria-label="Daily sales chart"></canvas></div></section><section class="app-panel"><div class="panel-heading"><div><h2>Payment mix</h2><p>Settled payments by method</p></div></div><div class="payment-mix">${data.payments_by_method.length ? data.payments_by_method.map((item) => `<div class="mix-row"><div><strong>${escapeHtml(item.method)}</strong><span>${item.count} transaction${Number(item.count) === 1 ? '' : 's'}</span></div><b>${formatPrice(item.total)}</b><div class="mix-bar"><i style="width:${data.revenue ? Math.max(3, Number(item.total) / data.revenue * 100) : 0}%"></i></div></div>`).join('') : '<p class="empty-state">Payments will appear here once they are recorded.</p>'}</div></section></div><section class="app-panel module-panel"><div class="panel-heading"><div><h2>Digital receipts</h2><p>Latest completed transactions</p></div><button class="text-action" data-go="payments">All payments →</button></div></section>`;
@@ -710,16 +1046,87 @@ function orderLineMarkup(menuOptions, onlyLine = false) {
     return `<div class="pos-order-line"><label>Food<select class="pos-menu-item" required>${menuOptions}</select></label><label>Qty<input class="pos-quantity" type="number" min="1" max="50" value="1" required></label>${onlyLine ? '' : '<button type="button" class="remove-order-line" data-remove-order-line aria-label="Remove item">×</button>'}</div>`;
 }
 
+async function downloadCsv(type) {
+    const labels = { orders: 'Orders', payments: 'Payments', expenses: 'Expenses' };
+    try {
+        const response = await fetch(`api.php?action=export&type=${encodeURIComponent(type)}`, { headers: { 'X-CSRF-Token': csrfToken } });
+        if (!response.ok) {
+            let message = `${labels[type] || 'Data'} export failed.`;
+            try {
+                message = (await response.json()).error || message;
+            } catch {
+                // Non-JSON error body.
+            }
+            throw new Error(message);
+        }
+        const blob = await response.blob();
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `kips-${type}-${new Date().toISOString().slice(0, 10)}.csv`;
+        link.click();
+        window.setTimeout(() => URL.revokeObjectURL(link.href), 2000);
+        toast(`${labels[type] || 'Data'} CSV downloaded.`);
+    } catch (error) {
+        toast(error.message, true);
+    }
+}
+
+function showPasswordDialog() {
+    appContent.insertAdjacentHTML('beforeend', `<div class="dialog-backdrop" id="recordDialog"><section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle"><button class="dialog-close" data-dismiss-dialog aria-label="Close">×</button><span class="app-eyebrow">ACCOUNT SECURITY</span><h2 id="dialogTitle">Change my password</h2><form id="passwordForm" class="record-form"><label>Current password<input name="current_password" type="password" autocomplete="current-password" required></label><label>New password<input name="new_password" type="password" autocomplete="new-password" minlength="12" required><small>Use at least 12 characters.</small></label><label>Confirm new password<input name="confirm_password" type="password" autocomplete="new-password" minlength="12" required></label><p class="app-message" data-form-error role="alert"></p><div class="dialog-actions"><button type="button" class="app-secondary" data-dismiss-dialog>Cancel</button><button type="submit" class="app-primary">Update password</button></div></form></section></div>`);
+    document.querySelector('#passwordForm [name="current_password"]')?.focus();
+}
+
 async function showReceipt(orderId) {
     const data = await request('receipt', { id: orderId }, 'GET');
-    const popup = window.open('', '_blank', 'width=480,height=680');
+    const popup = window.open('', '_blank', 'width=480,height=720');
     if (!popup) {
         toast('Allow pop-ups to open the digital receipt.', true);
         return;
     }
-    const lines = data.items.map((item) => `<tr><td>${escapeHtml(item.item_name)} × ${item.quantity}</td><td>${formatPrice(item.line_total)}</td></tr>`).join('');
+    const settings = dashboardData.settings || {};
+    const order = data.order;
+    const payment = data.payment;
+    const restaurantName = settings.restaurant_name || 'KIPS';
+    const lines = data.items.map((item) => `<tr><td>${escapeHtml(item.item_name)} <span class="qty">× ${item.quantity}</span></td><td>${formatPrice(item.line_total)}</td></tr>`).join('');
+    const balance = Number(order.total_price) - Number(payment.amount);
+    const taxLabel = Number(settings.tax_rate) ? `Tax (${escapeHtml(String(settings.tax_rate))}%)` : 'Tax';
+    const breakdown = [
+        `<tr class="sub"><td>Subtotal</td><td>${formatPrice(order.subtotal || order.total_price)}</td></tr>`,
+        Number(order.delivery_fee) ? `<tr class="sub"><td>Delivery fee</td><td>${formatPrice(order.delivery_fee)}</td></tr>` : '',
+        Number(order.tax_amount) ? `<tr class="sub"><td>${taxLabel}</td><td>${formatPrice(order.tax_amount)}</td></tr>` : '',
+        Number(order.discount) ? `<tr class="sub discount"><td>Staff discount</td><td>− ${formatPrice(order.discount)}</td></tr>` : ''
+    ].join('');
+    const contact = [settings.phone_display, settings.opening_hours].filter(Boolean).map((value) => escapeHtml(value)).join(' · ');
     popup.document.open();
-    popup.document.write(`<!doctype html><html><head><title>KIPS receipt #${data.order.id}</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:15px Arial,sans-serif;max-width:380px;margin:32px auto;color:#202936;padding:0 18px}h1{font-size:24px}small{color:#667085}table{width:100%;border-collapse:collapse;margin:24px 0}td{padding:10px 0;border-bottom:1px solid #e8ebee}td:last-child{text-align:right}button{background:#d97750;color:white;border:0;border-radius:8px;padding:12px 20px;font-weight:bold}@media print{button{display:none}}</style></head><body><h1>KIPS Restaurant</h1><small>PAYMENT RECEIPT · #${data.payment.id}</small><p>Order #${data.order.id} · ${dateLabel(data.payment.created_at)}</p><p>${escapeHtml(data.order.customer_name)}<br>${escapeHtml(data.order.customer_phone)}</p><table>${lines}<tr><td><strong>Total</strong></td><td><strong>${formatPrice(data.payment.amount)}</strong></td></tr></table><p>Paid via ${escapeHtml(data.payment.method)}${data.payment.reference ? ` · Ref: ${escapeHtml(data.payment.reference)}` : ''}</p><p>Received by ${escapeHtml(data.payment.staff_name || 'KIPS staff')}</p><button onclick="window.print()">Print receipt</button></body></html>`);
+    popup.document.write(`<!doctype html><html><head><title>${escapeHtml(restaurantName)} receipt #${order.id}</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+        *{box-sizing:border-box}
+        body{font:15px/1.5 "Segoe UI",Arial,sans-serif;max-width:380px;margin:32px auto;color:#202936;padding:0 18px}
+        .brand{text-align:center;border-bottom:2px dashed #d8dee5;padding-bottom:16px}
+        .brand h1{font-size:24px;margin:0 0 4px}
+        .brand small{color:#667085;display:block}
+        .meta{display:flex;justify-content:space-between;gap:12px;color:#667085;font-size:13px;margin:14px 0}
+        table{width:100%;border-collapse:collapse;margin:12px 0}
+        td{padding:8px 0;border-bottom:1px solid #eef1f4;vertical-align:top}
+        td:last-child{text-align:right;white-space:nowrap}
+        .qty{color:#667085;font-size:13px}
+        tr.sub td{border-bottom:0;padding:3px 0;color:#4b5563}
+        tr.discount td{color:#b45309}
+        tr.total td{border-top:2px solid #202936;border-bottom:0;padding-top:12px;font-size:18px;font-weight:700}
+        .payment{margin-top:18px;padding:12px;background:#f6f8fa;border-radius:10px;font-size:13px}
+        .payment strong{color:#202936}
+        .footer{text-align:center;color:#667085;font-size:12px;margin-top:24px}
+        button{width:100%;background:#cf7049;color:#fff;border:0;border-radius:10px;padding:13px;font-weight:700;font-size:15px;margin-top:20px;cursor:pointer}
+        @media print{body{margin:0 auto;padding:0 10px;max-width:340px}button{display:none}.payment{background:none;border:1px solid #ccc}}
+    </style></head><body>
+        <header class="brand"><h1>${escapeHtml(restaurantName)}</h1>${settings.restaurant_tagline ? `<small>${escapeHtml(settings.restaurant_tagline)}</small>` : ''}${contact ? `<small>${contact}</small>` : ''}</header>
+        <div class="meta"><span>Receipt #${payment.id}</span><span>Order #${order.id}</span></div>
+        <div class="meta"><span>${dateLabel(payment.created_at, timestampsAreUtc)}</span><span>${escapeHtml(order.order_type)}${order.table_number ? ` · ${escapeHtml(order.table_number)}` : ''}</span></div>
+        <p><strong>${escapeHtml(order.customer_name)}</strong><br>${escapeHtml(order.customer_phone)}</p>
+        <table>${lines}${breakdown}<tr class="total"><td>${balance > 0 ? 'Total due' : 'Total paid'}</td><td>${formatPrice(order.total_price)}</td></tr></table>
+        <div class="payment"><strong>Paid via ${escapeHtml(payment.method)}</strong><br>${dateLabel(payment.created_at, timestampsAreUtc)}${payment.reference ? `<br>Ref: ${escapeHtml(payment.reference)}` : ''}${balance > 0 ? `<br>Balance remaining: ${formatPrice(balance)}` : ''}<br>Served by ${escapeHtml(payment.staff_name || restaurantName + ' staff')}</div>
+        <p class="footer">Thank you for dining with ${escapeHtml(restaurantName)}. Keep this receipt for your records.</p>
+        <button onclick="window.print()">Print receipt</button>
+    </body></html>`);
     popup.document.close();
 }
 
@@ -760,6 +1167,23 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
     }
 });
 document.getElementById('mobileMenuBtn').addEventListener('click', () => document.getElementById('appSidebar').classList.toggle('sidebar-open'));
+document.getElementById('alertToggleBtn').addEventListener('click', async () => {
+    alertPreferences.enabled = !alertPreferences.enabled;
+    localStorage.setItem('kips-alerts', alertPreferences.enabled ? 'on' : 'off');
+    renderAlertToggle();
+    if (alertPreferences.enabled) {
+        await requestAlertPermission();
+        unlockAudio();
+        playOrderChime();
+        toast('New-order alerts are on. Keep this tab open to hear new orders.');
+    } else {
+        toast('New-order alerts are off.');
+    }
+});
+document.getElementById('changePasswordBtn').addEventListener('click', showPasswordDialog);
+window.addEventListener('focus', () => {
+    if (activeView === 'orders' || activeView === 'kitchen') clearUnseenOrders();
+});
 document.getElementById('notificationBtn').addEventListener('click', async () => {
     const alerts = dashboardData.notifications;
     if (!alerts.length) {
@@ -810,6 +1234,22 @@ appContent.addEventListener('click', async (event) => {
         await navigate(go.dataset.go);
         return;
     }
+    const exportButton = event.target.closest('[data-export]');
+    if (exportButton) {
+        await downloadCsv(exportButton.dataset.export);
+        return;
+    }
+    const printTicket = event.target.closest('[data-kitchen-print]');
+    if (printTicket) {
+        showKitchenTicket(Number(printTicket.dataset.kitchenPrint));
+        return;
+    }
+    const dismissChecklist = event.target.closest('[data-dismiss-checklist]');
+    if (dismissChecklist) {
+        localStorage.setItem('kips-checklist-dismissed', '1');
+        dismissChecklist.closest('.setup-checklist-panel')?.remove();
+        return;
+    }
     const button = event.target.closest('button');
     if (!button) return;
     if (button.id === 'newOrderBtn') {
@@ -818,6 +1258,20 @@ appContent.addEventListener('click', async (event) => {
             dashboardData.tables = data.items;
         }
         showOrderForm();
+    } else if (button.id === 'kitchenViewBtn') {
+        await navigate('kitchen');
+    } else if (button.id === 'kitchenOrdersBtn') {
+        await navigate('orders');
+    } else if (button.id === 'kitchenFullscreenBtn') {
+        try {
+            if (document.fullscreenElement) {
+                await document.exitFullscreen();
+            } else {
+                await (document.getElementById('appShell') || document.documentElement).requestFullscreen();
+            }
+        } catch {
+            toast('This browser cannot enter full screen.', true);
+        }
     } else if (button.id === 'addOrderLineBtn') {
         const options = dashboardData.menu.filter((item) => Number(item.available)).map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)} · ${formatPrice(item.price)}</option>`).join('');
         document.getElementById('posOrderLines').insertAdjacentHTML('beforeend', orderLineMarkup(options));
@@ -893,7 +1347,10 @@ appContent.addEventListener('click', async (event) => {
                 const status = action === 'preparing' ? 'preparing' : action === 'complete' ? 'completed' : 'cancelled';
                 result = await request('set_order_status', { id: Number(button.dataset.id), current_status: currentStatus, status });
             }
-            toast(result.message);
+            const notifyHint = ['verify', 'preparing', 'complete'].includes(action)
+                ? ' Use "Tell guest" to send them the update.'
+                : '';
+            toast(result.message + notifyHint);
             await refreshDashboard();
             await navigate(activeView);
         } catch (error) {
@@ -919,7 +1376,7 @@ appContent.addEventListener('submit', async (event) => {
             else toast('Choose an image smaller than 10 MB.', true);
             return;
         }
-        if (submitButton && (formId === 'recordForm' || formId === 'menuItemForm')) {
+        if (submitButton && ['recordForm', 'menuItemForm', 'settingsForm', 'passwordForm'].includes(formId)) {
             submitButton.disabled = true;
             submitButton.textContent = 'Saving…';
         }
@@ -954,6 +1411,15 @@ appContent.addEventListener('submit', async (event) => {
             toast(result.message);
             await refreshDashboard();
             renderMenu();
+        } else if (formId === 'settingsForm') {
+            result = await request('settings_save', Object.fromEntries(new FormData(form)));
+            dashboardData.settings = result.settings;
+            toast(result.message);
+            await refreshDashboard();
+        } else if (formId === 'passwordForm') {
+            result = await request('change_password', Object.fromEntries(new FormData(form)));
+            form.closest('#recordDialog').remove();
+            toast(result.message);
         } else if (formId === 'newOrderForm') {
             const values = Object.fromEntries(new FormData(form));
             values.items = Array.from(form.querySelectorAll('.pos-order-line')).map((line) => ({
@@ -1028,10 +1494,14 @@ window.setInterval(async () => {
     try {
         const data = await request('dashboard', {}, 'GET');
         dashboardData = data;
+        timestampsAreUtc = Boolean(data.timestamps_utc);
+        trackOrders(data);
+        if (activeView === 'orders' || activeView === 'kitchen') clearUnseenOrders();
         document.getElementById('openOrderCount').textContent = data.summary.open_orders || '';
         document.getElementById('notificationDot').hidden = !data.notifications.length;
         if (activeView === 'dashboard') renderOverview();
         if (activeView === 'orders') renderOrders();
+        if (activeView === 'kitchen') renderKitchen();
     } catch (error) {
         toast(error.message, true);
     }

@@ -98,6 +98,29 @@ function api_require_csrf(array $input): void
     }
 }
 
+function api_require_administrator(): void
+{
+    api_require_admin();
+    if (!restaurant_staff_can('settings')) {
+        api_response(['error' => 'Only an administrator can change restaurant settings.'], 403);
+    }
+}
+
+function api_send_csv(string $filename, array $headers, array $rows): never
+{
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Cache-Control: no-store');
+    $output = fopen('php://output', 'w');
+    fwrite($output, "\xEF\xBB\xBF");
+    fputcsv($output, $headers);
+    foreach ($rows as $row) {
+        fputcsv($output, $row);
+    }
+    fclose($output);
+    exit;
+}
+
 function api_clean_text($value, int $maxLength, string $label): string
 {
     if (!is_string($value)) {
@@ -220,6 +243,11 @@ try {
         ]);
     }
 
+    if ($action === 'settings_get' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+        api_require_administrator();
+        api_response(['settings' => restaurant_settings(true)]);
+    }
+
     if ($action === 'customer_order' && $_SERVER['REQUEST_METHOD'] === 'GET') {
         $orderId = filter_var($_GET['order'] ?? null, FILTER_VALIDATE_INT);
         $token = $_GET['token'] ?? '';
@@ -227,7 +255,7 @@ try {
             api_response(['error' => 'This order link is invalid.'], 404);
         }
         $statement = restaurant_db()->prepare(
-            'SELECT id, total_price, payment_method, status, order_type, delivery_address,
+            'SELECT id, subtotal, delivery_fee, tax_amount, discount, total_price, payment_method, status, order_type, delivery_address,
                     (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = orders.id AND status = \'completed\') AS paid_amount
              FROM orders WHERE id = ? AND customer_token_hash = ?'
         );
@@ -243,6 +271,7 @@ try {
         $order['items'] = $items->fetchAll();
         $order['can_choose_payment'] = in_array($order['status'], ['verified', 'preparing'], true)
             && (int) $order['paid_amount'] < (int) $order['total_price'];
+        $order['can_cancel'] = $order['status'] === 'awaiting_verification';
         api_response(['order' => $order]);
     }
 
@@ -269,6 +298,7 @@ try {
                 : [],
             'orders_today' => (int) $db->query("SELECT COUNT(*) FROM orders WHERE DATE(created_at) = {$today}")->fetchColumn(),
             'open_orders' => (int) $db->query("SELECT COUNT(*) FROM orders WHERE status IN ('awaiting_verification', 'verified', 'preparing')")->fetchColumn(),
+            'awaiting_orders' => (int) $db->query("SELECT COUNT(*) FROM orders WHERE status = 'awaiting_verification'")->fetchColumn(),
             'reservations_today' => (int) $db->query("SELECT COUNT(*) FROM reservations WHERE DATE(reservation_at) = {$today} AND status IN ('pending', 'confirmed')")->fetchColumn(),
             'low_stock' => (int) $db->query('SELECT COUNT(*) FROM ingredients WHERE stock_quantity <= reorder_level')->fetchColumn()
         ];
@@ -278,7 +308,7 @@ try {
              GROUP BY DATE(created_at) ORDER BY DATE(created_at)"
         )->fetchAll() : [];
         $orders = $db->query(
-            'SELECT id, customer_name, customer_phone, item_name, quantity, unit_price, total_price,
+            'SELECT id, customer_name, customer_phone, item_name, quantity, unit_price, subtotal, delivery_fee, tax_amount, discount, total_price,
                     payment_method, status, queue_position, order_type, table_number, delivery_address, notes, created_at,
                     (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = orders.id AND status = \'completed\') AS paid_amount
              FROM orders
@@ -301,6 +331,18 @@ try {
              WHERE i.stock_quantity <= i.reorder_level ORDER BY i.stock_quantity ASC LIMIT 8'
         )->fetchAll();
         $staff = restaurant_current_staff();
+        $checklist = [];
+        if (restaurant_staff_can('settings')) {
+            $defaultNames = array_column(restaurant_menu_defaults(), 'name');
+            $menuStatement = $db->prepare('SELECT COUNT(*) FROM menu_items WHERE name NOT IN (' . implode(',', array_fill(0, count($defaultNames), '?')) . ')');
+            $menuStatement->execute($defaultNames);
+            $checklist = [
+                ['key' => 'profile', 'label' => 'Complete your restaurant profile', 'hint' => 'Set your hours, phone, delivery fee and tax.', 'done' => (int) $db->query('SELECT COUNT(*) FROM restaurant_settings')->fetchColumn() > 0, 'view' => 'settings'],
+                ['key' => 'menu', 'label' => 'Make the menu yours', 'hint' => 'Replace the sample dishes with your real menu and photos.', 'done' => (int) $menuStatement->fetchColumn() > 0, 'view' => 'menu'],
+                ['key' => 'team', 'label' => 'Add your team', 'hint' => 'Create individual accounts for waiters, chefs and cashiers.', 'done' => (int) $db->query('SELECT COUNT(*) FROM admins WHERE active = 1')->fetchColumn() > 1, 'view' => 'employees'],
+                ['key' => 'order', 'label' => 'Take your first order', 'hint' => 'Place a test order from the customer menu, or open one at the counter.', 'done' => (int) $db->query('SELECT COUNT(*) FROM orders')->fetchColumn() > 0, 'view' => 'orders']
+            ];
+        }
         api_response([
             'staff' => $staff,
             'username' => $staff['username'],
@@ -310,7 +352,10 @@ try {
             'menu' => restaurant_menu_items(),
             'tables' => restaurant_staff_can('tables') ? $db->query('SELECT * FROM restaurant_tables ORDER BY id')->fetchAll() : [],
             'low_stock_items' => $lowStock,
-            'notifications' => $db->query('SELECT id, title, message, level, created_at FROM notifications WHERE read_at IS NULL ORDER BY id DESC LIMIT 8')->fetchAll()
+            'notifications' => $db->query('SELECT id, title, message, level, created_at FROM notifications WHERE read_at IS NULL ORDER BY id DESC LIMIT 8')->fetchAll(),
+            'settings' => restaurant_settings(true),
+            'checklist' => $checklist,
+            'timestamps_utc' => $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite'
         ]);
     }
 
@@ -391,6 +436,48 @@ try {
         api_response(['order' => $order, 'payment' => $payment, 'items' => $lines->fetchAll()]);
     }
 
+    if ($action === 'export' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+        $type = $_GET['type'] ?? '';
+        $db = restaurant_db();
+        $date = date('Y-m-d');
+        if ($type === 'orders') {
+            api_require_permission('orders');
+            $rows = $db->query(
+                'SELECT id, created_at, customer_name, customer_phone, order_type, table_number, delivery_address,
+                        subtotal, delivery_fee, tax_amount, discount, total_price, status, payment_method, notes
+                 FROM orders ORDER BY id DESC'
+            )->fetchAll(PDO::FETCH_NUM);
+            api_audit('data_export', 'order', null, 'Orders exported as CSV');
+            api_send_csv('kips-orders-' . $date . '.csv', [
+                'Order', 'Created', 'Customer', 'Phone', 'Type', 'Table', 'Delivery address',
+                'Subtotal', 'Delivery fee', 'Tax', 'Discount', 'Total', 'Status', 'Payment method', 'Notes'
+            ], $rows);
+        }
+        if ($type === 'payments') {
+            api_require_permission('payments');
+            $rows = $db->query(
+                'SELECT p.id, p.created_at, p.order_id, o.customer_name, o.customer_phone, p.amount, p.method, p.reference, p.status
+                 FROM payments p JOIN orders o ON o.id = p.order_id ORDER BY p.id DESC'
+            )->fetchAll(PDO::FETCH_NUM);
+            api_audit('data_export', 'payment', null, 'Payments exported as CSV');
+            api_send_csv('kips-payments-' . $date . '.csv', [
+                'Receipt', 'Paid at', 'Order', 'Customer', 'Phone', 'Amount', 'Method', 'Reference', 'Status'
+            ], $rows);
+        }
+        if ($type === 'expenses') {
+            api_require_permission('expenses');
+            $rows = $db->query(
+                'SELECT e.id, e.expense_date, e.category, e.description, e.amount, s.name AS supplier, e.notes, e.created_at
+                 FROM expenses e LEFT JOIN suppliers s ON s.id = e.supplier_id ORDER BY e.expense_date DESC, e.id DESC'
+            )->fetchAll(PDO::FETCH_NUM);
+            api_audit('data_export', 'expense', null, 'Expenses exported as CSV');
+            api_send_csv('kips-expenses-' . $date . '.csv', [
+                'ID', 'Expense date', 'Category', 'Description', 'Amount', 'Supplier', 'Notes', 'Recorded at'
+            ], $rows);
+        }
+        api_response(['error' => 'Choose orders, payments or expenses to export.'], 422);
+    }
+
     if ($action === 'backup' && $_SERVER['REQUEST_METHOD'] === 'GET') {
         api_require_permission('backup');
         $db = restaurant_db();
@@ -447,6 +534,38 @@ try {
             }
         }
         api_response(['message' => 'Payment preference saved. The restaurant team will confirm your payment after receiving it.']);
+    }
+
+    if ($action === 'cancel_order' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        if (!str_starts_with($_SERVER['CONTENT_TYPE'] ?? '', 'application/json')) {
+            api_response(['error' => 'Cancel the order using your private order page.'], 415);
+        }
+        $orderId = filter_var($input['order_id'] ?? null, FILTER_VALIDATE_INT);
+        $token = $input['token'] ?? '';
+        if (!$orderId || !is_string($token) || !preg_match('/\A[a-f0-9]{64}\z/', $token)) {
+            api_response(['error' => 'This order link is invalid.'], 404);
+        }
+        $db = restaurant_db();
+        $tokenHash = hash('sha256', $token);
+        $db->beginTransaction();
+        $statement = $db->prepare("UPDATE orders SET status = 'cancelled', queue_position = NULL WHERE id = ? AND customer_token_hash = ? AND status = 'awaiting_verification'");
+        $statement->execute([$orderId, $tokenHash]);
+        if ($statement->rowCount() !== 1) {
+            $db->rollBack();
+            $check = $db->prepare('SELECT status FROM orders WHERE id = ? AND customer_token_hash = ?');
+            $check->execute([$orderId, $tokenHash]);
+            $status = $check->fetchColumn();
+            if ($status === false) {
+                api_response(['error' => 'This order link is invalid or has expired.'], 404);
+            }
+            api_response(['error' => 'This order can no longer be cancelled online. Please contact the restaurant team.'], 409);
+        }
+        $db->prepare("UPDATE restaurant_tables SET status = 'available' WHERE table_number = (SELECT table_number FROM orders WHERE id = ?) AND status = 'occupied'")->execute([$orderId]);
+        $db->prepare('INSERT INTO notifications (title, message, level) VALUES (?, ?, ?)')
+            ->execute(['Order cancelled by guest', 'Order #' . $orderId . ' was cancelled by the customer before confirmation.', 'warning']);
+        $db->commit();
+        api_audit('order_cancelled_by_customer', 'order', (int) $orderId, 'Customer cancelled the order before staff confirmation');
+        api_response(['message' => 'Your order has been cancelled. Contact the restaurant if you need help.']);
     }
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -533,12 +652,17 @@ try {
         }
         $allowedMethods = ['Cash', 'Bank Card', 'Airtel Money', 'TNM Mpamba', 'Bank Transfer'];
         $customerToken = null;
+        $paymentMethod = '';
         if ($staff) {
-            $paymentMethod = $input['payment_method'] ?? '';
-            if (!is_string($paymentMethod) || !in_array($paymentMethod, $allowedMethods, true)) {
-                api_response(['error' => 'Choose a valid payment method.'], 422);
+            $requestedMethod = $input['payment_method'] ?? '';
+            if ($requestedMethod !== '') {
+                if (!is_string($requestedMethod) || !in_array($requestedMethod, $allowedMethods, true)) {
+                    api_response(['error' => 'Choose a valid payment method.'], 422);
+                }
+                $paymentMethod = $requestedMethod;
             }
-        } else {
+        }
+        if ($paymentMethod === '') {
             $paymentMethod = 'Awaiting customer choice';
             $customerToken = bin2hex(random_bytes(32));
         }
@@ -582,6 +706,19 @@ try {
             $total += $lineTotal;
             $totalQuantity += $quantity;
         }
+        $subtotal = $total;
+        $settings = restaurant_settings();
+        $deliveryFee = $orderType === 'delivery' ? max(0, (int) $settings['delivery_fee']) : 0;
+        $taxRate = max(0.0, min(100.0, (float) $settings['tax_rate']));
+        $taxAmount = (int) round($subtotal * $taxRate / 100);
+        $discount = 0;
+        if ($staff && isset($input['discount']) && $input['discount'] !== '') {
+            $discount = filter_var($input['discount'], FILTER_VALIDATE_INT);
+            if ($discount === false || $discount < 0 || $discount > $subtotal + $deliveryFee + $taxAmount) {
+                api_response(['error' => 'Enter a discount between 0 and the order total.'], 422);
+            }
+        }
+        $total = max(0, $subtotal + $deliveryFee + $taxAmount - $discount);
         $notes = isset($input['notes']) && trim((string) $input['notes']) !== ''
             ? api_clean_text($input['notes'], 1000, 'Order notes')
             : '';
@@ -597,11 +734,11 @@ try {
         }
         $firstItem = $orderItems[0];
         $statement = $db->prepare(
-            'INSERT INTO orders (customer_name, customer_phone, item_name, quantity, unit_price, total_price, payment_method, customer_token_hash, order_type, table_number, customer_id, delivery_address, notes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO orders (customer_name, customer_phone, item_name, quantity, unit_price, subtotal, delivery_fee, tax_amount, discount, total_price, payment_method, customer_token_hash, order_type, table_number, customer_id, delivery_address, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $statement->execute([
-            $name, $phone, $firstItem['name'], $totalQuantity, $firstItem['price'], $total,
+            $name, $phone, $firstItem['name'], $totalQuantity, $firstItem['price'], $subtotal, $deliveryFee, $taxAmount, $discount, $total,
             $paymentMethod, $customerToken !== null ? hash('sha256', $customerToken) : null,
             $orderType, $tableNumber, $customerId, $deliveryAddress, $notes
         ]);
@@ -622,6 +759,10 @@ try {
         api_audit('order_created', 'order', $orderId, $orderType . ' order submitted');
         api_response([
             'order_id' => $orderId,
+            'subtotal' => $subtotal,
+            'delivery_fee' => $deliveryFee,
+            'tax_amount' => $taxAmount,
+            'discount' => $discount,
             'total' => $total,
             'tracking_token' => $customerToken,
             'message' => 'Order submitted and awaiting staff verification.'
@@ -655,6 +796,95 @@ try {
         $_SESSION = [];
         session_regenerate_id(true);
         api_response(['message' => 'Signed out.']);
+    }
+
+    if ($action === 'settings_save') {
+        api_require_administrator();
+        $optionalText = static function (string $key, string $label, int $maxLength) use ($input): string {
+            $value = $input[$key] ?? '';
+            if (!is_string($value)) {
+                api_response(['error' => $label . ' must be text.'], 422);
+            }
+            $value = trim($value);
+            if (mb_strlen($value) > $maxLength) {
+                api_response(['error' => $label . ' must be ' . $maxLength . ' characters or fewer.'], 422);
+            }
+            return $value;
+        };
+        $name = api_clean_text($input['restaurant_name'] ?? null, 100, 'Restaurant name');
+        $phone = $optionalText('phone_display', 'Phone number', 40);
+        $whatsapp = preg_replace('/\D+/', '', $optionalText('whatsapp_number', 'WhatsApp number', 30)) ?? '';
+        $countryCode = preg_replace('/\D+/', '', $optionalText('country_code', 'Country code', 10)) ?? '';
+        $currency = $optionalText('currency_symbol', 'Currency symbol', 6) ?: 'MK';
+        $hours = $optionalText('opening_hours', 'Opening hours', 100);
+        $openingNote = $optionalText('opening_note', 'Opening note', 60);
+        $tagline = $optionalText('restaurant_tagline', 'Tagline', 140);
+        $facebook = $optionalText('facebook_url', 'Facebook URL', 500);
+        $instagram = $optionalText('instagram_url', 'Instagram URL', 500);
+        if ($whatsapp !== '' && (strlen($whatsapp) < 8 || strlen($whatsapp) > 15)) {
+            api_response(['error' => 'Enter a WhatsApp number with its country code, for example 265991234567.'], 422);
+        }
+        if ($countryCode !== '' && (strlen($countryCode) < 1 || strlen($countryCode) > 4)) {
+            api_response(['error' => 'Enter a valid country calling code, for example 265.'], 422);
+        }
+        foreach (['facebook_url' => $facebook, 'instagram_url' => $instagram] as $label => $url) {
+            if ($url !== '' && (strlen($url) > 500 || !filter_var($url, FILTER_VALIDATE_URL) || parse_url($url, PHP_URL_SCHEME) !== 'https')) {
+                api_response(['error' => ucfirst(str_replace('_', ' ', $label)) . ' must be a valid HTTPS address.'], 422);
+            }
+        }
+        $deliveryFee = filter_var($input['delivery_fee'] ?? 0, FILTER_VALIDATE_INT);
+        if ($deliveryFee === false || $deliveryFee < 0 || $deliveryFee > 100000000) {
+            api_response(['error' => 'Delivery fee must be a whole amount between 0 and 100,000,000.'], 422);
+        }
+        $taxRate = $input['tax_rate'] ?? 0;
+        if (!is_numeric($taxRate) || (float) $taxRate < 0 || (float) $taxRate > 100) {
+            api_response(['error' => 'Tax rate must be a percentage between 0 and 100.'], 422);
+        }
+        restaurant_settings_save([
+            'restaurant_name' => $name,
+            'restaurant_tagline' => $tagline,
+            'phone_display' => $phone,
+            'whatsapp_number' => $whatsapp,
+            'country_code' => $countryCode ?: '265',
+            'opening_hours' => $hours,
+            'opening_note' => $openingNote,
+            'facebook_url' => $facebook,
+            'instagram_url' => $instagram,
+            'currency_symbol' => $currency,
+            'delivery_fee' => (string) $deliveryFee,
+            'tax_rate' => rtrim(rtrim(number_format((float) $taxRate, 2, '.', ''), '0'), '.') ?: '0'
+        ]);
+        api_audit('settings_updated', 'settings', null, 'Restaurant profile and checkout settings updated');
+        api_response(['message' => 'Restaurant settings saved.', 'settings' => restaurant_settings(true)]);
+    }
+
+    if ($action === 'change_password') {
+        $staff = restaurant_current_staff();
+        $currentPassword = $input['current_password'] ?? '';
+        $newPassword = $input['new_password'] ?? '';
+        $confirmPassword = $input['confirm_password'] ?? '';
+        if (!is_string($currentPassword) || !is_string($newPassword) || !is_string($confirmPassword)) {
+            api_response(['error' => 'Enter your current password and a new password.'], 422);
+        }
+        $statement = $db->prepare('SELECT password_hash FROM admins WHERE id = ?');
+        $statement->execute([$staff['id']]);
+        $hash = $statement->fetchColumn();
+        if (!$hash || !password_verify($currentPassword, $hash)) {
+            api_response(['error' => 'Your current password is incorrect.'], 422);
+        }
+        if (strlen($newPassword) < 12 || strlen($newPassword) > 200) {
+            api_response(['error' => 'Choose a new password with at least 12 characters.'], 422);
+        }
+        if ($newPassword !== $confirmPassword) {
+            api_response(['error' => 'The new passwords do not match.'], 422);
+        }
+        if (password_verify($newPassword, $hash)) {
+            api_response(['error' => 'Choose a new password that is different from your current one.'], 422);
+        }
+        $db->prepare('UPDATE admins SET password_hash = ? WHERE id = ?')->execute([password_hash($newPassword, PASSWORD_DEFAULT), $staff['id']]);
+        session_regenerate_id(true);
+        api_audit('password_changed', 'employee', (int) $staff['id'], 'Staff member changed their password');
+        api_response(['message' => 'Your password has been updated.']);
     }
 
     if ($action === 'mark_notifications_read') {
