@@ -2,14 +2,10 @@ services:
   - type: web
     name: kips-restaurant
     runtime: docker
-    plan: starter
+    plan: free
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api.php?action=status
     autoDeploy: true
-    disk:
-      name: kips-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: KIPS_DATA_DIR
         value: /var/data
