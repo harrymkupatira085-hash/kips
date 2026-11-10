@@ -162,8 +162,7 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                         <h1>Made fresh for your appetite</h1>
                         <p class="menu-intro"><?= htmlspecialchars($openingNote) ?> from <?= htmlspecialchars($openingHours) ?>. Place your order online and our team will confirm it with you.</p>
                         <div class="menu-hero-actions">
-                            <a class="primary-btn" href="#menuGrid">Order now</a>
-                            <a class="secondary-btn" href="index.php?page=reserve">Reserve a table</a>
+                            <a class="primary-btn" href="index.php?page=reserve">Reserve a table</a>
                         </div>
                         <ul class="menu-hero-highlights">
                             <li>Made to order</li>
