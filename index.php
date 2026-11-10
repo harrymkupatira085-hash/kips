@@ -157,6 +157,11 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
         <section id="menu" class="menu-section">
             <div class="container">
                 <div class="menu-hero">
+                    <div class="menu-hero-bg" aria-hidden="true">
+                        <img src="images/bg-restaurant-1.jpg" alt="">
+                        <img src="images/bg-restaurant-2.jpg" alt="" loading="lazy">
+                        <img src="images/bg-restaurant-3.jpg" alt="" loading="lazy">
+                    </div>
                     <div class="menu-hero-copy">
                         <p class="eyebrow">Our menu</p>
                         <h1>Made fresh for your appetite</h1>
