@@ -76,8 +76,7 @@ select {
 }
 
 .topbar {
-    position: sticky;
-    top: 10px;
+    position: relative;
     z-index: 60;
     padding: 14px 0 0;
     background: transparent;
@@ -2145,7 +2144,6 @@ select {
 
 @media (max-width: 860px) {
     .topbar {
-        top: 8px;
         padding-top: 10px;
     }
 
