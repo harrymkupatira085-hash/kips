@@ -308,7 +308,9 @@ function closeOrderConfirmationModal() {
 }
 
 closeOrderConfirmation?.addEventListener('click', closeOrderConfirmationModal);
-doneOrderConfirmation?.addEventListener('click', closeOrderConfirmationModal);
+doneOrderConfirmation?.addEventListener('click', () => {
+    window.location.assign('index.php');
+});
 orderConfirmation?.addEventListener('click', (event) => {
     if (event.target === orderConfirmation) closeOrderConfirmationModal();
 });
