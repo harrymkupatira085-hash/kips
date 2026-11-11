@@ -82,6 +82,12 @@ mainNav?.querySelectorAll('a').forEach((link) => {
     link.addEventListener('click', closeMobileNav);
 });
 
+document.addEventListener('click', (event) => {
+    if (!mainNav?.classList.contains('is-open')) return;
+    if (event.target instanceof Element && event.target.closest('.topbar .nav')) return;
+    closeMobileNav();
+});
+
 menuFilterButtons.forEach((button) => {
     button.addEventListener('click', () => {
         const selectedCategory = button.dataset.menuFilter;

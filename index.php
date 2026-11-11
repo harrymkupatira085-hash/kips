@@ -79,29 +79,51 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
     <meta name="description" content="<?= htmlspecialchars('Fresh, tasty meals and fast delivery from ' . $restaurantName . '. ' . $restaurantTagline) ?>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css?v=2-<?= (int) filemtime(__DIR__ . '/style.css') ?>">
 </head>
 <body>
     <header class="topbar">
         <div class="container nav">
-            <button class="mobile-nav-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="main-nav">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
-            </button>
             <a class="brand" href="index.php" aria-label="<?= htmlspecialchars($restaurantName, ENT_QUOTES, 'UTF-8') ?> home">
-                <span class="brand-mark"><?= htmlspecialchars(mb_substr($restaurantName, 0, 1)) ?></span>
-                <span><?= htmlspecialchars($restaurantName) ?></span>
+                <span class="brand-mark" aria-hidden="true"><?= htmlspecialchars(mb_substr($restaurantName, 0, 1)) ?></span>
+                <span class="brand-wordmark">
+                    <span class="brand-name"><?= htmlspecialchars($restaurantName) ?></span>
+                    <small class="brand-label">Restaurant</small>
+                </span>
             </a>
 
             <nav class="main-nav" id="main-nav" aria-label="Main navigation">
-                <a href="index.php?page=menu" <?= $page === 'menu' ? 'aria-current="page"' : '' ?>>Menu</a>
-                <a href="index.php?page=reserve" <?= $page === 'reserve' ? 'aria-current="page"' : '' ?>>Reserve</a>
-                <a href="index.php?page=about" <?= $page === 'about' ? 'aria-current="page"' : '' ?>>About</a>
+                <a href="index.php?page=menu" <?= $page === 'menu' ? 'aria-current="page"' : '' ?>>
+                    <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3v6a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2V3M7 11v10"/><path d="M17 3c-1.7 0-3 1.8-3 4s1.3 4 3 4 3-1.8 3-4-1.3-4-3-4ZM17 11v10"/></svg>
+                    <span>Menu</span>
+                </a>
+                <a href="index.php?page=reserve" <?= $page === 'reserve' ? 'aria-current="page"' : '' ?>>
+                    <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg>
+                    <span>Reserve</span>
+                </a>
+                <a href="index.php?page=about" <?= $page === 'about' ? 'aria-current="page"' : '' ?>>
+                    <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.6 5.3 5.9.9-4.3 4.2 1 5.8L12 16.5 6.8 19.2l1-5.8L3.5 9.2l5.9-.9L12 3Z"/></svg>
+                    <span>About</span>
+                </a>
+                <a class="nav-menu-cta" href="index.php?page=order">
+                    <span>Order now</span>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                </a>
             </nav>
 
             <div class="header-actions">
-                <a href="index.php?page=order" class="nav-button">Order now <span id="navCartCount" class="nav-cart-count" aria-label="0 items in cart" hidden>0</span></a>
+                <a href="index.php?page=order" class="nav-button">
+                    <svg class="nav-button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7h12l1 13H5L6 7Z"/><path d="M9 7V6a3 3 0 0 1 6 0v1"/></svg>
+                    <span>Order now</span>
+                    <span id="navCartCount" class="nav-cart-count" aria-label="0 items in cart" hidden>0</span>
+                </a>
             </div>
+
+            <button class="mobile-nav-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="main-nav">
+                <span class="menu-line" aria-hidden="true"></span>
+                <span class="menu-line" aria-hidden="true"></span>
+            </button>
         </div>
     </header>
 
