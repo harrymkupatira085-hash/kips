@@ -119,12 +119,35 @@ function restaurant_db(): PDO
     $username = restaurant_config('KIPS_DB_USER');
     $password = restaurant_config('KIPS_DB_PASSWORD');
     $host = restaurant_config('KIPS_DB_HOST');
+
+    $mysqlOptions = [];
+    if ($dsn !== '' || $host !== '') {
+        $mysqlOptions[PDO::ATTR_TIMEOUT] = 15;
+        $ssl = strtolower(restaurant_config('KIPS_DB_SSL'));
+        if ($ssl !== '' && !in_array($ssl, ['0', 'false', 'off', 'no'], true)) {
+            $caPath = restaurant_config('KIPS_DB_SSL_CA');
+            if ($caPath === '') {
+                foreach (['/etc/ssl/certs/ca-certificates.crt', '/etc/pki/tls/certs/ca-bundle.crt'] as $candidate) {
+                    if (is_file($candidate)) {
+                        $caPath = $candidate;
+                        break;
+                    }
+                }
+            }
+            if ($caPath !== '') {
+                $mysqlOptions[PDO::MYSQL_ATTR_SSL_CA] = $caPath;
+            }
+            $verify = strtolower(restaurant_config('KIPS_DB_SSL_VERIFY', '1'));
+            $mysqlOptions[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = !in_array($verify, ['0', 'false', 'off', 'no'], true);
+        }
+    }
+
     if ($dsn) {
-        $db = new PDO($dsn, $username, $password);
+        $db = new PDO($dsn, $username, $password, $mysqlOptions);
     } elseif ($host) {
         $port = restaurant_config('KIPS_DB_PORT', '3306');
         $database = restaurant_config('KIPS_DB_NAME', 'kips_restaurant');
-        $db = new PDO("mysql:host={$host};port={$port};dbname={$database};charset=utf8mb4", $username, $password);
+        $db = new PDO("mysql:host={$host};port={$port};dbname={$database};charset=utf8mb4", $username, $password, $mysqlOptions);
     } else {
         $documentRoot = $_SERVER['DOCUMENT_ROOT'] ?? dirname(__DIR__);
         $dataDirectory = restaurant_config('KIPS_DATA_DIR') ?: dirname($documentRoot) . DIRECTORY_SEPARATOR . 'kips-data';
