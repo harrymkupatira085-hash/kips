@@ -9,7 +9,7 @@ const authMessage = document.getElementById('authMessage');
 const appShell = document.getElementById('appShell');
 const appContent = document.getElementById('appContent');
 const appToast = document.getElementById('appToast');
-const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+let csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 const rolePermissions = {
     administrator: ['*'],
     manager: ['dashboard', 'orders', 'kitchen', 'menu', 'reservations', 'tables', 'customers', 'inventory', 'suppliers', 'expenses', 'employees', 'payments', 'reports', 'audit'],
@@ -117,19 +117,32 @@ function dashboardIcon(name) {
 }
 
 async function request(action, payload = {}, method = 'POST') {
-    const options = { method, headers: { 'X-CSRF-Token': csrfToken } };
-    if (method === 'POST') {
-        if (payload instanceof FormData) {
-            options.body = payload;
-        } else {
-            options.headers['Content-Type'] = 'application/json';
-            options.body = JSON.stringify(payload);
+    const send = () => {
+        const options = { method, headers: { 'X-CSRF-Token': csrfToken } };
+        if (method === 'POST') {
+            if (payload instanceof FormData) {
+                options.body = payload;
+            } else {
+                options.headers['Content-Type'] = 'application/json';
+                options.body = JSON.stringify(payload);
+            }
+        }
+        const query = method === 'GET'
+            ? `${payload.resource ? `&resource=${encodeURIComponent(payload.resource)}` : ''}${payload.id ? `&id=${encodeURIComponent(payload.id)}` : ''}`
+            : '';
+        return fetch(`api.php?action=${encodeURIComponent(action)}${query}`, options);
+    };
+    let response = await send();
+    if (response.status === 403 && method === 'POST') {
+        const statusResponse = await fetch('api.php?action=status', { cache: 'no-store' });
+        if (statusResponse.ok) {
+            const status = await statusResponse.json();
+            if (status.csrf_token) {
+                csrfToken = status.csrf_token;
+                response = await send();
+            }
         }
     }
-    const query = method === 'GET'
-        ? `${payload.resource ? `&resource=${encodeURIComponent(payload.resource)}` : ''}${payload.id ? `&id=${encodeURIComponent(payload.id)}` : ''}`
-        : '';
-    const response = await fetch(`api.php?action=${encodeURIComponent(action)}${query}`, options);
     if (response.status === 401) {
         showAuth(false);
     }
@@ -1346,6 +1359,12 @@ appContent.addEventListener('click', async (event) => {
                 const currentStatus = button.dataset.currentStatus || (action === 'preparing' ? 'verified' : 'preparing');
                 const status = action === 'preparing' ? 'preparing' : action === 'complete' ? 'completed' : 'cancelled';
                 result = await request('set_order_status', { id: Number(button.dataset.id), current_status: currentStatus, status });
+            }
+            if (action === 'verify' && order) {
+                const confirmationUrl = whatsappGuestLink(order.customer_phone, guestStatusMessage({ ...order, status: 'verified' }));
+                if (confirmationUrl && window.confirm(`Order #${order.id} is confirmed. Send the confirmation to ${order.customer_name} on WhatsApp now?`)) {
+                    window.open(confirmationUrl, '_blank', 'noopener,noreferrer');
+                }
             }
             const notifyHint = ['verify', 'preparing', 'complete'].includes(action)
                 ? ' Use "Tell guest" to send them the update.'

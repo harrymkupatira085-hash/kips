@@ -104,6 +104,30 @@ function formatKwacha(value) {
     return `${currencySymbol} ${Number(value).toLocaleString('en-US')}`;
 }
 
+async function postWithFreshCsrf(action, payload) {
+    const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    const send = () => fetch(`api.php?action=${action}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfMeta?.content || ''
+        },
+        body: JSON.stringify(payload)
+    });
+    let response = await send();
+    if (response.status === 403) {
+        const statusResponse = await fetch('api.php?action=status', { cache: 'no-store' });
+        if (statusResponse.ok) {
+            const status = await statusResponse.json();
+            if (status.csrf_token && csrfMeta) {
+                csrfMeta.content = status.csrf_token;
+                response = await send();
+            }
+        }
+    }
+    return response;
+}
+
 function cartQuantity() {
     return Array.from(cart.values()).reduce((total, quantity) => total + quantity, 0);
 }
@@ -428,21 +452,14 @@ confirmPaymentBtn?.addEventListener('click', async () => {
     confirmPaymentBtn.disabled = true;
     confirmPaymentBtn.textContent = 'Submitting…';
     try {
-        const response = await fetch('api.php?action=create_order', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
-            },
-            body: JSON.stringify({
-                customer_name: customer,
-                customer_phone: customerPhone.value.trim(),
-                items: Array.from(cart, ([item_name, quantity]) => ({ item_name, quantity })),
-                order_type: orderType.value,
-                table_number: orderType.value === 'dine-in' ? orderTable.value : '',
-                delivery_address: orderType.value === 'delivery' ? deliveryAddress.value.trim() : '',
-                notes: orderNotes.value.trim()
-            })
+        const response = await postWithFreshCsrf('create_order', {
+            customer_name: customer,
+            customer_phone: customerPhone.value.trim(),
+            items: Array.from(cart, ([item_name, quantity]) => ({ item_name, quantity })),
+            order_type: orderType.value,
+            table_number: orderType.value === 'dine-in' ? orderTable.value : '',
+            delivery_address: orderType.value === 'delivery' ? deliveryAddress.value.trim() : '',
+            notes: orderNotes.value.trim()
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || 'Could not submit your order.');
@@ -629,14 +646,7 @@ if (reservationForm) {
         submitButton.disabled = true;
         message.textContent = '';
         try {
-            const response = await fetch('api.php?action=create_reservation', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
-                },
-                body: JSON.stringify(fields)
-            });
+            const response = await postWithFreshCsrf('create_reservation', fields);
             const result = await response.json();
             if (!response.ok) throw new Error(result.error || 'Could not submit your reservation.');
             message.textContent = `${result.message} Reference #${result.reservation_id}.`;

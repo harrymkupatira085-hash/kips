@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/storage.php';
+restaurant_start_session();
 $menuItems = restaurant_menu_items(true);
 $menuCategoryLabels = [
     'main' => 'Meals',
