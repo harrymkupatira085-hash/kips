@@ -239,6 +239,7 @@ try {
             'admin_exists' => restaurant_admin_exists(),
             'logged_in' => $staff !== null,
             'staff' => $staff,
+            'storage' => restaurant_db()->getAttribute(PDO::ATTR_DRIVER_NAME),
             'csrf_token' => restaurant_csrf_token()
         ]);
     }
