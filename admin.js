@@ -85,6 +85,14 @@ function formatPrice(value) {
     return `${currencySymbol()} ${Number(value || 0).toLocaleString('en-US')}`;
 }
 
+function orderMapUrl(order) {
+    if (order.delivery_lat === null || order.delivery_lat === '' || order.delivery_lng === null || order.delivery_lng === '') return '';
+    const lat = Number(order.delivery_lat);
+    const lng = Number(order.delivery_lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return '';
+    return `https://www.google.com/maps?q=${lat.toFixed(6)},${lng.toFixed(6)}`;
+}
+
 function canAccess(view) {
     const permissions = rolePermissions[currentStaff?.role] || [];
     return permissions.includes('*') || permissions.includes(view);
@@ -679,8 +687,9 @@ function orderCard(order, orders) {
     const itemSummary = order.lines?.length
         ? order.lines.map((item) => `${item.item_name} × ${item.quantity}`).join(', ')
         : `${order.item_name} × ${order.quantity}`;
+    const deliveryMapUrl = orderMapUrl(order);
     const deliveryAddress = order.order_type === 'delivery' && order.delivery_address
-        ? `<p class="ticket-address"><strong>Delivery to:</strong> ${escapeHtml(order.delivery_address)}</p>`
+        ? `<p class="ticket-address"><strong>Delivery to:</strong> ${escapeHtml(order.delivery_address)}${deliveryMapUrl ? ` <a class="ticket-map-link" href="${deliveryMapUrl}" target="_blank" rel="noopener noreferrer">Open map ↗</a>` : ''}</p>`
         : '';
     return `<article class="ticket-card">
         <div class="ticket-top"><span class="ticket-id">#${order.id} <i class="order-type-dot type-${escapeHtml(order.order_type)}"></i>${escapeHtml(order.order_type)}${order.table_number ? ` · ${escapeHtml(order.table_number)}` : ''}</span><span class="status-pill status-${escapeHtml(status)}">${escapeHtml(statusLabel)}${status === 'verified' && order.queue_position ? ` · #${order.queue_position}` : ''}</span></div>
@@ -736,8 +745,9 @@ function kitchenCard(order, firstVerifiedId) {
         actions = `<button class="mini-primary" data-action="complete" data-current-status="preparing" data-id="${order.id}">Mark ready</button>` + actions;
     }
     const guestWhatsApp = whatsappGuestLink(order.customer_phone, guestStatusMessage(order));
+    const kitchenMapUrl = orderMapUrl(order);
     const address = order.order_type === 'delivery' && order.delivery_address
-        ? `<p class="kitchen-address"><strong>Deliver to:</strong> ${escapeHtml(order.delivery_address)}</p>`
+        ? `<p class="kitchen-address"><strong>Deliver to:</strong> ${escapeHtml(order.delivery_address)}${kitchenMapUrl ? ` <a class="kitchen-map-link" href="${kitchenMapUrl}" target="_blank" rel="noopener noreferrer">Open map ↗</a>` : ''}</p>`
         : '';
     return `<article class="kitchen-card status-${escapeHtml(status)}">
         <div class="kitchen-card-head"><span class="kitchen-order-number">#${order.id}</span><span class="kitchen-timer">${escapeHtml(kitchenElapsed(order.created_at))}</span></div>
@@ -763,7 +773,7 @@ function showKitchenTicket(orderId) {
         ? order.lines.map((item) => `<tr><td>${escapeHtml(item.item_name)}</td><td>× ${item.quantity}</td></tr>`).join('')
         : `<tr><td>${escapeHtml(order.item_name)}</td><td>× ${order.quantity}</td></tr>`;
     popup.document.open();
-    popup.document.write(`<!doctype html><html><head><title>Kitchen ticket #${order.id}</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:18px Arial,sans-serif;max-width:360px;margin:24px auto;color:#111;padding:0 16px}h1{font-size:26px;margin-bottom:4px}small{color:#555}h2{font-size:40px;margin:12px 0}table{width:100%;border-collapse:collapse;margin:16px 0}td{padding:8px 0;border-bottom:1px dashed #bbb}td:last-child{text-align:right}.address,.notes{border:2px solid #111;padding:8px;margin:12px 0}button{width:100%;background:#111;color:#fff;border:0;border-radius:8px;padding:12px;font-weight:bold;font-size:16px}@media print{button{display:none}body{margin:0;max-width:none}}</style></head><body><h1>${escapeHtml(restaurantName)}</h1><small>KITCHEN TICKET · ${escapeHtml(order.order_type)}${order.table_number ? ' · ' + escapeHtml(order.table_number) : ''}</small><h2>Order #${order.id}</h2><p>${escapeHtml(kitchenElapsed(order.created_at))}</p><table>${lines}</table>${order.notes ? `<p class="notes"><strong>Notes:</strong> ${escapeHtml(order.notes)}</p>` : ''}${order.order_type === 'delivery' && order.delivery_address ? `<p class="address"><strong>Deliver to:</strong> ${escapeHtml(order.delivery_address)}</p>` : ''}<p><strong>${escapeHtml(order.customer_name)}</strong><br>${escapeHtml(order.customer_phone)}</p><button onclick="window.print()">Print ticket</button></body></html>`);
+    popup.document.write(`<!doctype html><html><head><title>Kitchen ticket #${order.id}</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:18px Arial,sans-serif;max-width:360px;margin:24px auto;color:#111;padding:0 16px}h1{font-size:26px;margin-bottom:4px}small{color:#555}h2{font-size:40px;margin:12px 0}table{width:100%;border-collapse:collapse;margin:16px 0}td{padding:8px 0;border-bottom:1px dashed #bbb}td:last-child{text-align:right}.address,.notes{border:2px solid #111;padding:8px;margin:12px 0}button{width:100%;background:#111;color:#fff;border:0;border-radius:8px;padding:12px;font-weight:bold;font-size:16px}@media print{button{display:none}body{margin:0;max-width:none}}</style></head><body><h1>${escapeHtml(restaurantName)}</h1><small>KITCHEN TICKET · ${escapeHtml(order.order_type)}${order.table_number ? ' · ' + escapeHtml(order.table_number) : ''}</small><h2>Order #${order.id}</h2><p>${escapeHtml(kitchenElapsed(order.created_at))}</p><table>${lines}</table>${order.notes ? `<p class="notes"><strong>Notes:</strong> ${escapeHtml(order.notes)}</p>` : ''}${order.order_type === 'delivery' && order.delivery_address ? `<p class="address"><strong>Deliver to:</strong> ${escapeHtml(order.delivery_address)}</p>` : ''}${order.order_type === 'delivery' && orderMapUrl(order) ? `<p class="address"><a href="${orderMapUrl(order)}" target="_blank" rel="noopener noreferrer">Open delivery location in Google Maps</a></p>` : ''}<p><strong>${escapeHtml(order.customer_name)}</strong><br>${escapeHtml(order.customer_phone)}</p><button onclick="window.print()">Print ticket</button></body></html>`);
     popup.document.close();
 }
 

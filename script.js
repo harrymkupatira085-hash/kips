@@ -36,6 +36,16 @@ const checkoutCartButton = document.getElementById('checkoutCartBtn');
 const closeCartChoiceButton = document.getElementById('closeCartChoice');
 const deliveryAddress = document.getElementById('deliveryAddress');
 const deliveryAddressLabel = document.getElementById('deliveryAddressLabel');
+const deliveryLocationTools = document.getElementById('deliveryLocationTools');
+const locateMeBtn = document.getElementById('locateMeBtn');
+const locationStatus = document.getElementById('locationStatus');
+const deliveryLat = document.getElementById('deliveryLat');
+const deliveryLng = document.getElementById('deliveryLng');
+const deliveryMapPreview = document.getElementById('deliveryMapPreview');
+const deliveryMapFrame = document.getElementById('deliveryMapFrame');
+const deliveryMapLink = document.getElementById('deliveryMapLink');
+const locationIdleMessage = 'Share your GPS pin so our rider can find you faster. You can also paste a Google Maps link in the address box.';
+let deliveryCoords = null;
 const cart = new Map();
 const cartStorageKey = 'kips-order-cart';
 let cartStorageError = '';
@@ -432,6 +442,89 @@ paymentModal?.addEventListener('click', (event) => {
     }
 });
 
+function googleMapsUrl(lat, lng) {
+    return `https://www.google.com/maps?q=${lat.toFixed(6)},${lng.toFixed(6)}`;
+}
+
+function setDeliveryCoords(lat, lng, message) {
+    deliveryCoords = { lat, lng };
+    if (deliveryLat) deliveryLat.value = String(lat);
+    if (deliveryLng) deliveryLng.value = String(lng);
+    if (deliveryMapFrame) {
+        const bbox = [lng - .004, lat - .004, lng + .004, lat + .004]
+            .map((value) => value.toFixed(5))
+            .join('%2C');
+        deliveryMapFrame.src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat.toFixed(6)}%2C${lng.toFixed(6)}`;
+    }
+    if (deliveryMapLink) deliveryMapLink.href = googleMapsUrl(lat, lng);
+    if (deliveryMapPreview) deliveryMapPreview.hidden = false;
+    if (locationStatus && message) locationStatus.textContent = message;
+}
+
+function resetDeliveryLocation() {
+    deliveryCoords = null;
+    if (deliveryLat) deliveryLat.value = '';
+    if (deliveryLng) deliveryLng.value = '';
+    if (deliveryMapPreview) deliveryMapPreview.hidden = true;
+    if (deliveryMapFrame) deliveryMapFrame.src = 'about:blank';
+    if (locationStatus) locationStatus.textContent = locationIdleMessage;
+    if (locateMeBtn) locateMeBtn.disabled = false;
+}
+
+function syncDeliveryLocationVisibility() {
+    if (!deliveryLocationTools) return;
+    deliveryLocationTools.hidden = orderType?.value !== 'delivery';
+}
+
+function extractMapCoords(text) {
+    const patterns = [
+        /@(-?\d{1,3}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)/,
+        /[?&](?:q|query|ll|daddr|destination)=(-?\d{1,3}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)/,
+        /!3d(-?\d{1,3}(?:\.\d+)?)!4d(-?\d{1,3}(?:\.\d+)?)/
+    ];
+    for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (!match) continue;
+        const lat = Number(match[1]);
+        const lng = Number(match[2]);
+        if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+            return { lat, lng };
+        }
+    }
+    return null;
+}
+
+syncDeliveryLocationVisibility();
+
+locateMeBtn?.addEventListener('click', () => {
+    if (!('geolocation' in navigator)) {
+        if (locationStatus) locationStatus.textContent = 'This browser cannot access GPS. Type your address instead.';
+        return;
+    }
+    locateMeBtn.disabled = true;
+    if (locationStatus) locationStatus.textContent = 'Finding your location…';
+    navigator.geolocation.getCurrentPosition((position) => {
+        locateMeBtn.disabled = false;
+        const { latitude, longitude } = position.coords;
+        setDeliveryCoords(latitude, longitude, 'GPS pin added. Add your house or street details above so the rider knows exactly where to come.');
+    }, (error) => {
+        locateMeBtn.disabled = false;
+        if (locationStatus) {
+            locationStatus.textContent = error.code === error.PERMISSION_DENIED
+                ? 'Location access is blocked. Allow it in your browser, or type your address above.'
+                : 'We could not get your location just now. Try again or type your address above.';
+        }
+    }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 });
+});
+
+deliveryAddress?.addEventListener('change', () => {
+    if (deliveryAddress.value.trim() === '') return;
+    const coords = extractMapCoords(deliveryAddress.value);
+    if (coords) {
+        setDeliveryCoords(coords.lat, coords.lng, 'Location taken from the Google Maps link you pasted.');
+    }
+});
+
 orderType?.addEventListener('change', () => {
     const showTable = orderType.value === 'dine-in';
     const showAddress = orderType.value === 'delivery';
@@ -441,6 +534,7 @@ orderType?.addEventListener('change', () => {
     deliveryAddress.hidden = !showAddress;
     deliveryAddressLabel.hidden = !showAddress;
     deliveryAddress.required = showAddress;
+    syncDeliveryLocationVisibility();
     orderMessage.textContent = showTable && !orderTable.options.length
         ? 'No tables are available for dine-in right now.'
         : `${orderType.options[orderType.selectedIndex].text} selected. Our team will confirm your order before you choose a payment method.`;
@@ -467,6 +561,8 @@ confirmPaymentBtn?.addEventListener('click', async () => {
             order_type: orderType.value,
             table_number: orderType.value === 'dine-in' ? orderTable.value : '',
             delivery_address: orderType.value === 'delivery' ? deliveryAddress.value.trim() : '',
+            delivery_lat: orderType.value === 'delivery' && deliveryCoords ? deliveryCoords.lat : '',
+            delivery_lng: orderType.value === 'delivery' && deliveryCoords ? deliveryCoords.lng : '',
             notes: orderNotes.value.trim()
         });
         const result = await response.json();
@@ -500,6 +596,7 @@ confirmPaymentBtn?.addEventListener('click', async () => {
         customerPhone.value = '';
         deliveryAddress.value = '';
         orderNotes.value = '';
+        resetDeliveryLocation();
     } catch (error) {
         orderMessage.textContent = error.message;
     } finally {
@@ -561,6 +658,16 @@ async function loadCustomerOrder() {
         const addressRow = document.getElementById('customerOrderAddressRow');
         addressRow.hidden = order.order_type !== 'delivery';
         document.getElementById('customerOrderAddress').textContent = order.delivery_address || '';
+        const mapRow = document.getElementById('customerOrderMapRow');
+        const mapLink = document.getElementById('customerOrderMapLink');
+        const mapLat = Number(order.delivery_lat);
+        const mapLng = Number(order.delivery_lng);
+        const hasMap = order.delivery_lat !== null && order.delivery_lat !== ''
+            && order.delivery_lng !== null && order.delivery_lng !== ''
+            && Number.isFinite(mapLat) && Number.isFinite(mapLng)
+            && Math.abs(mapLat) <= 90 && Math.abs(mapLng) <= 180;
+        if (mapRow) mapRow.hidden = !hasMap;
+        if (hasMap && mapLink) mapLink.href = googleMapsUrl(mapLat, mapLng);
         document.getElementById('customerOrderMethod').textContent = order.payment_method === 'Awaiting customer choice' ? 'Not selected yet' : order.payment_method;
         customerPaymentChoice.hidden = !order.can_choose_payment;
         if (order.can_choose_payment && Array.from(customerPaymentMethod.options).some((option) => option.value === order.payment_method)) {

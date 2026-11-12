@@ -257,7 +257,7 @@ try {
             api_response(['error' => 'This order link is invalid.'], 404);
         }
         $statement = restaurant_db()->prepare(
-            'SELECT id, subtotal, delivery_fee, tax_amount, discount, total_price, payment_method, status, order_type, delivery_address,
+            'SELECT id, subtotal, delivery_fee, tax_amount, discount, total_price, payment_method, status, order_type, delivery_address, delivery_lat, delivery_lng,
                     (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = orders.id AND status = \'completed\') AS paid_amount
              FROM orders WHERE id = ? AND customer_token_hash = ?'
         );
@@ -311,7 +311,7 @@ try {
         )->fetchAll() : [];
         $orders = $db->query(
             'SELECT id, customer_name, customer_phone, item_name, quantity, unit_price, subtotal, delivery_fee, tax_amount, discount, total_price,
-                    payment_method, status, queue_position, order_type, table_number, delivery_address, notes, created_at,
+                    payment_method, status, queue_position, order_type, table_number, delivery_address, delivery_lat, delivery_lng, notes, created_at,
                     (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = orders.id AND status = \'completed\') AS paid_amount
              FROM orders
              ORDER BY CASE status WHEN \'awaiting_verification\' THEN 0 WHEN \'verified\' THEN 1 WHEN \'preparing\' THEN 2 ELSE 3 END,
@@ -446,12 +446,13 @@ try {
             api_require_permission('orders');
             $rows = $db->query(
                 'SELECT id, created_at, customer_name, customer_phone, order_type, table_number, delivery_address,
+                        delivery_lat, delivery_lng,
                         subtotal, delivery_fee, tax_amount, discount, total_price, status, payment_method, notes
                  FROM orders ORDER BY id DESC'
             )->fetchAll(PDO::FETCH_NUM);
             api_audit('data_export', 'order', null, 'Orders exported as CSV');
             api_send_csv('kips-orders-' . $date . '.csv', [
-                'Order', 'Created', 'Customer', 'Phone', 'Type', 'Table', 'Delivery address',
+                'Order', 'Created', 'Customer', 'Phone', 'Type', 'Table', 'Delivery address', 'Latitude', 'Longitude',
                 'Subtotal', 'Delivery fee', 'Tax', 'Discount', 'Total', 'Status', 'Payment method', 'Notes'
             ], $rows);
         }
@@ -673,8 +674,22 @@ try {
             api_response(['error' => 'Choose dine-in, takeaway, or delivery.'], 422);
         }
         $deliveryAddress = '';
+        $deliveryLat = null;
+        $deliveryLng = null;
         if ($orderType === 'delivery') {
             $deliveryAddress = api_clean_text($input['delivery_address'] ?? null, 500, 'Delivery address');
+            $latInput = $input['delivery_lat'] ?? null;
+            $lngInput = $input['delivery_lng'] ?? null;
+            $hasMapPin = ($latInput !== null && $latInput !== '') || ($lngInput !== null && $lngInput !== '');
+            if ($hasMapPin) {
+                $deliveryLat = filter_var($latInput, FILTER_VALIDATE_FLOAT);
+                $deliveryLng = filter_var($lngInput, FILTER_VALIDATE_FLOAT);
+                if ($deliveryLat === false || $deliveryLng === false
+                    || $deliveryLat < -90 || $deliveryLat > 90
+                    || $deliveryLng < -180 || $deliveryLng > 180) {
+                    api_response(['error' => 'The delivery location pin is invalid. Share your location again.'], 422);
+                }
+            }
         }
         $tableNumber = '';
         if ($orderType === 'dine-in') {
@@ -736,13 +751,13 @@ try {
         }
         $firstItem = $orderItems[0];
         $statement = $db->prepare(
-            'INSERT INTO orders (customer_name, customer_phone, item_name, quantity, unit_price, subtotal, delivery_fee, tax_amount, discount, total_price, payment_method, customer_token_hash, order_type, table_number, customer_id, delivery_address, notes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO orders (customer_name, customer_phone, item_name, quantity, unit_price, subtotal, delivery_fee, tax_amount, discount, total_price, payment_method, customer_token_hash, order_type, table_number, customer_id, delivery_address, delivery_lat, delivery_lng, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $statement->execute([
             $name, $phone, $firstItem['name'], $totalQuantity, $firstItem['price'], $subtotal, $deliveryFee, $taxAmount, $discount, $total,
             $paymentMethod, $customerToken !== null ? hash('sha256', $customerToken) : null,
-            $orderType, $tableNumber, $customerId, $deliveryAddress, $notes
+            $orderType, $tableNumber, $customerId, $deliveryAddress, $deliveryLat, $deliveryLng, $notes
         ]);
         $orderId = (int) $db->lastInsertId();
         $lineInsert = $db->prepare('INSERT INTO order_items (order_id, menu_item_id, item_name, quantity, unit_price, line_total) VALUES (?, ?, ?, ?, ?, ?)');

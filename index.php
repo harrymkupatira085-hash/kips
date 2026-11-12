@@ -158,11 +158,13 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                 </div>
 
                 <div class="home-hero-visual" data-reveal="scale" data-tilt aria-label="Featured dish">
-                    <span class="home-plate-glow" aria-hidden="true"></span>
-                    <span class="home-plate-ring" aria-hidden="true"></span>
-                    <figure class="home-plate">
-                        <img src="<?= htmlspecialchars($heroImage, ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars($heroDishName) ?>" fetchpriority="high">
-                    </figure>
+                    <div class="home-plate-stage">
+                        <span class="home-plate-glow" aria-hidden="true"></span>
+                        <span class="home-plate-ring" aria-hidden="true"></span>
+                        <figure class="home-plate">
+                            <img src="<?= htmlspecialchars($heroImage, ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars($heroDishName) ?>" fetchpriority="high">
+                        </figure>
+                    </div>
 
                     <div class="home-pick">
                         <span class="home-pick-star" aria-hidden="true">★</span>
@@ -184,52 +186,11 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
             </div>
         </section>
 
-        <section class="home-collection">
-            <div class="container">
-                <header class="home-section-head" data-reveal="up">
-                    <p class="home-eyebrow"><span aria-hidden="true"></span>Chef&rsquo;s favourites</p>
-                    <h2>Signature <em>collection</em></h2>
-                    <p>Handpicked favourites from our kitchen, prepared fresh when you order.</p>
-                </header>
-
-                <div class="home-cards">
-                    <?php foreach (array_slice($menuItems, 0, 4) as $index => $item): ?>
-                        <article class="home-card" data-reveal="up" style="--delay: <?= $index * 90 ?>ms">
-                            <div class="home-card-media <?= htmlspecialchars($item['thumb']) ?>">
-                                <?php if (!empty($item['image_path'])): ?>
-                                    <img src="api.php?action=menu_image&amp;id=<?= (int) $item['id'] ?>&amp;v=<?= rawurlencode($item['image_path']) ?>" alt="<?= htmlspecialchars($item['name']) ?>" loading="lazy" decoding="async">
-                                <?php elseif (!empty($item['image_url'])): ?>
-                                    <img src="<?= htmlspecialchars($item['image_url'], ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars($item['name']) ?>" loading="lazy" decoding="async">
-                                <?php endif; ?>
-                            </div>
-                            <div class="home-card-body">
-                                <h3><?= htmlspecialchars($item['name']) ?></h3>
-                                <p><?= htmlspecialchars($item['description']) ?></p>
-                                <div class="home-card-meta">
-                                    <span class="home-price"><?= htmlspecialchars($money($item['price'])) ?></span>
-                                    <button class="add-btn home-add" type="button" data-item="<?= htmlspecialchars($item['name']) ?>" data-price="<?= (int) $item['price'] ?>" aria-label="Add <?= htmlspecialchars($item['name']) ?> to basket">+</button>
-                                </div>
-                            </div>
-                        </article>
-                    <?php endforeach; ?>
-                    <?php if (!$menuItems): ?>
-                        <p class="home-empty">Our menu is being updated. Please check back soon.</p>
-                    <?php endif; ?>
-                </div>
-
-                <div class="home-view-all">
-                    <a class="home-btn home-btn--ghost" href="index.php?page=menu">View full menu
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-                    </a>
-                </div>
-            </div>
-        </section>
-
         <section class="home-story">
             <div class="container home-story-grid">
                 <div class="home-story-media" data-reveal="left">
                     <img class="home-story-main" src="images/bg-restaurant-2.jpg" alt="Dining room at <?= htmlspecialchars($restaurantName) ?>" loading="lazy" decoding="async">
-                    <img class="home-story-small" src="images/menu-hero.jpg" alt="A fresh plate from the kitchen" loading="lazy" decoding="async">
+                    <img class="home-story-small" src="images/bg-restaurant-1.jpg" alt="A candlelit table set for dinner" loading="lazy" decoding="async">
                     <span class="home-story-seal">Fresh daily</span>
                 </div>
 
@@ -447,6 +408,7 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                         <div><span>Total</span><strong id="customerOrderTotal"></strong></div>
                         <div><span>Order type</span><strong id="customerOrderType"></strong></div>
                         <div id="customerOrderAddressRow" hidden><span>Delivery address</span><strong id="customerOrderAddress"></strong></div>
+                        <div id="customerOrderMapRow" hidden><span>Delivery location</span><strong><a id="customerOrderMapLink" href="#" target="_blank" rel="noopener noreferrer">Open map</a></strong></div>
                         <div><span>Payment preference</span><strong id="customerOrderMethod"></strong></div>
                     </div>
                     <div id="customerPaymentChoice" class="customer-payment-choice" hidden>
@@ -522,6 +484,20 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                 <small class="form-help">Required for delivery; your address is shared with restaurant staff to fulfill this order.</small>
             </label>
 
+            <div id="deliveryLocationTools" class="delivery-location">
+                <button id="locateMeBtn" class="location-btn" type="button">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s7-5.4 7-11a7 7 0 1 0-14 0c0 5.6 7 11 7 11Z"></path><circle cx="12" cy="10" r="2.6"></circle></svg>
+                    <span>Use my current location</span>
+                </button>
+                <p id="locationStatus" class="form-help" role="status" aria-live="polite">Share your GPS pin so our rider can find you faster. You can also paste a Google Maps link in the address box.</p>
+                <input id="deliveryLat" type="hidden" value="">
+                <input id="deliveryLng" type="hidden" value="">
+                <div id="deliveryMapPreview" class="delivery-map" hidden>
+                    <iframe id="deliveryMapFrame" title="Delivery location map" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+                    <a id="deliveryMapLink" href="#" target="_blank" rel="noopener noreferrer">Open in Google Maps</a>
+                </div>
+            </div>
+
             <label for="orderTable" id="orderTableLabel" hidden>Available table</label>
             <select id="orderTable" hidden>
                 <?php foreach ($availableTables as $table): ?>
@@ -574,24 +550,23 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
 
                 <nav class="footer-contact" aria-label="Connect with <?= htmlspecialchars($restaurantName, ENT_QUOTES, 'UTF-8') ?>">
                     <h2>Stay connected</h2>
+                    <div class="footer-social-row">
                     <?php if ($whatsappUrl): ?>
-                    <a href="<?= htmlspecialchars($whatsappUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener noreferrer">
+                    <a href="<?= htmlspecialchars($whatsappUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener noreferrer" aria-label="Chat with <?= htmlspecialchars($restaurantName, ENT_QUOTES, 'UTF-8') ?> on WhatsApp" title="WhatsApp">
                         <span class="footer-social-badge"><svg class="footer-social-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 11.7a8.4 8.4 0 0 1-12.4 7.4L3 20.5l1.5-4.9a8.4 8.4 0 1 1 16-3.9Z"></path><path d="M8.8 8.2c.2-.5.4-.5.7-.5h.5c.2 0 .4.1.5.4l.8 1.8c.1.2.1.4 0 .5l-.5.7c-.2.2-.2.4 0 .6.5.8 1.2 1.5 2 2 .2.1.4.2.6 0l.7-.8c.2-.2.4-.2.6-.1l1.7.8c.3.1.4.3.4.5 0 .4-.2 1.1-.6 1.4-.4.4-1 .6-1.6.5-1-.1-2.3-.7-3.8-2-1.3-1.1-2.2-2.5-2.5-3.5-.3-.8 0-1.7.5-2.3Z"></path></svg></span>
-                        <span><strong>WhatsApp</strong><small><?= htmlspecialchars($settings['phone_display'] ?: $whatsappDigits) ?></small></span>
                     </a>
                     <?php endif; ?>
                     <?php if ($settings['facebook_url']): ?>
-                    <a href="<?= htmlspecialchars($settings['facebook_url'], ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener noreferrer">
+                    <a href="<?= htmlspecialchars($settings['facebook_url'], ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener noreferrer" aria-label="<?= htmlspecialchars($restaurantName, ENT_QUOTES, 'UTF-8') ?> on Facebook" title="Facebook">
                         <span class="footer-social-badge"><svg class="footer-social-icon footer-facebook-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 21v-8h2.7l.4-3.1h-3.1v-2c0-.9.3-1.5 1.6-1.5h1.7V3.6c-.3 0-1.3-.1-2.4-.1-2.4 0-4 1.5-4 4.1v2.3H7.7V13h2.7v8h3.1Z"></path></svg></span>
-                        <span><strong>Facebook</strong><small>Follow our page</small></span>
                     </a>
                     <?php endif; ?>
                     <?php if ($settings['instagram_url']): ?>
-                    <a href="<?= htmlspecialchars($settings['instagram_url'], ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener noreferrer">
+                    <a href="<?= htmlspecialchars($settings['instagram_url'], ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener noreferrer" aria-label="<?= htmlspecialchars($restaurantName, ENT_QUOTES, 'UTF-8') ?> on Instagram" title="Instagram">
                         <span class="footer-social-badge"><svg class="footer-social-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="5"></rect><circle cx="12" cy="12" r="4"></circle><circle class="footer-instagram-dot" cx="17.7" cy="6.8" r="1"></circle></svg></span>
-                        <span><strong>Instagram</strong><small>Follow our page</small></span>
                     </a>
                     <?php endif; ?>
+                    </div>
                 </nav>
             </div>
             <div class="footer-bottom">

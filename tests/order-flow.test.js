@@ -98,6 +98,18 @@ test('requires a delivery address and accepts multiple items with the address on
     assert.equal(missingAddress.response.status, 422);
     assert.match(missingAddress.body.error, /Delivery address/);
 
+    const invalidPin = await apiRequest('create_order', {
+        customer_name: 'Test Guest',
+        customer_phone: '+265 991 000 001',
+        items: [{ item_name: 'Chips & Chicken', quantity: 1 }],
+        order_type: 'delivery',
+        delivery_address: '12 Test Road, Area 1, Lilongwe',
+        delivery_lat: 999,
+        delivery_lng: 33.7741
+    });
+    assert.equal(invalidPin.response.status, 422);
+    assert.match(invalidPin.body.error, /location pin/);
+
     const created = await apiRequest('create_order', {
         customer_name: 'Test Guest',
         customer_phone: '+265 991 000 001',
@@ -106,7 +118,9 @@ test('requires a delivery address and accepts multiple items with the address on
             { item_name: 'Cake', quantity: 1 }
         ],
         order_type: 'delivery',
-        delivery_address: '12 Test Road, Area 1, Lilongwe'
+        delivery_address: '12 Test Road, Area 1, Lilongwe',
+        delivery_lat: -13.9626,
+        delivery_lng: 33.7741
     });
     assert.equal(created.response.status, 201);
     assert.equal(created.body.total, 22000);
@@ -119,6 +133,8 @@ test('requires a delivery address and accepts multiple items with the address on
     assert.equal(tracking.status, 200);
     const result = await tracking.json();
     assert.equal(result.order.delivery_address, '12 Test Road, Area 1, Lilongwe');
+    assert.ok(Math.abs(Number(result.order.delivery_lat) - -13.9626) < 1e-6);
+    assert.ok(Math.abs(Number(result.order.delivery_lng) - 33.7741) < 1e-6);
     assert.deepEqual(result.order.items.map(({ item_name, quantity }) => [item_name, Number(quantity)]), [
         ['Chips & Chicken', 2],
         ['Cake', 1]
@@ -157,6 +173,7 @@ test('exposes delivery details to authorized restaurant staff', async () => {
     const dashboard = await response.json();
     const deliveryOrder = dashboard.orders.find((order) => order.delivery_address === '12 Test Road, Area 1, Lilongwe');
     assert.ok(deliveryOrder, 'The dashboard should include the delivery address on the order ticket');
+    assert.ok(Math.abs(Number(deliveryOrder.delivery_lat) - -13.9626) < 1e-6, 'The dashboard should include the delivery GPS pin');
     assert.deepEqual(deliveryOrder.lines.map(({ item_name, quantity }) => [item_name, Number(quantity)]), [
         ['Chips & Chicken', 2],
         ['Cake', 1]
