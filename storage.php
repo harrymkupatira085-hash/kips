@@ -122,7 +122,7 @@ function restaurant_db(): PDO
 
     $mysqlOptions = [];
     if ($dsn !== '' || $host !== '') {
-        $mysqlOptions[PDO::ATTR_TIMEOUT] = 15;
+        $mysqlOptions[PDO::ATTR_TIMEOUT] = 5;
         $ssl = strtolower(restaurant_config('KIPS_DB_SSL'));
         if ($ssl !== '' && !in_array($ssl, ['0', 'false', 'off', 'no'], true)) {
             $caPath = restaurant_config('KIPS_DB_SSL_CA');
@@ -142,19 +142,31 @@ function restaurant_db(): PDO
         }
     }
 
-    if ($dsn) {
-        $db = new PDO($dsn, $username, $password, $mysqlOptions);
-    } elseif ($host) {
-        $port = restaurant_config('KIPS_DB_PORT', '3306');
-        $database = restaurant_config('KIPS_DB_NAME', 'kips_restaurant');
-        $db = new PDO("mysql:host={$host};port={$port};dbname={$database};charset=utf8mb4", $username, $password, $mysqlOptions);
-    } else {
+    $databaseError = null;
+    if ($dsn || $host) {
+        try {
+            if ($dsn) {
+                $db = new PDO($dsn, $username, $password, $mysqlOptions);
+            } else {
+                $port = restaurant_config('KIPS_DB_PORT', '3306');
+                $database = restaurant_config('KIPS_DB_NAME', 'kips_restaurant');
+                $db = new PDO("mysql:host={$host};port={$port};dbname={$database};charset=utf8mb4", $username, $password, $mysqlOptions);
+            }
+        } catch (PDOException $exception) {
+            $databaseError = $exception->getMessage();
+        }
+    }
+
+    if (!($db instanceof PDO)) {
         $documentRoot = $_SERVER['DOCUMENT_ROOT'] ?? dirname(__DIR__);
         $dataDirectory = restaurant_config('KIPS_DATA_DIR') ?: dirname($documentRoot) . DIRECTORY_SEPARATOR . 'kips-data';
         if (!is_dir($dataDirectory) && !mkdir($dataDirectory, 0700, true) && !is_dir($dataDirectory)) {
             throw new RuntimeException('The restaurant data directory could not be created.');
         }
         $db = new PDO('sqlite:' . $dataDirectory . DIRECTORY_SEPARATOR . 'restaurant.sqlite');
+        if ($databaseError !== null) {
+            error_log('KIPS: database connection failed, using local storage: ' . $databaseError);
+        }
     }
 
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
