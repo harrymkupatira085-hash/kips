@@ -39,12 +39,6 @@ $deliveryFeeSetting = max(0, (int) $settings['delivery_fee']);
 $taxRateSetting = max(0.0, min(100.0, (float) $settings['tax_rate']));
 $money = static fn ($amount): string => $currencySymbol . ' ' . number_format((float) $amount, 0);
 $availableTables = restaurant_db()->query("SELECT table_number, capacity FROM restaurant_tables WHERE status = 'available' ORDER BY id")->fetchAll();
-$restaurantStats = [
-    ['value' => number_format((int) restaurant_db()->query('SELECT COUNT(*) FROM customers')->fetchColumn()), 'label' => 'Registered guests'],
-    ['value' => number_format((int) restaurant_db()->query("SELECT COUNT(*) FROM orders WHERE status = 'completed'")->fetchColumn()), 'label' => 'Orders completed'],
-    ['value' => number_format(count($menuItems)), 'label' => 'Meals on our menu']
-];
-
 $heroItem = $menuItems[0] ?? null;
 $heroImage = 'images/menu-hero.jpg';
 if ($heroItem) {
@@ -79,10 +73,10 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
     <meta name="description" content="<?= htmlspecialchars('Fresh, tasty meals and fast delivery from ' . $restaurantName . '. ' . $restaurantTagline) ?>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,600;1,9..144,700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css?v=2-<?= (int) filemtime(__DIR__ . '/style.css') ?>">
 </head>
-<body>
+<body class="page-<?= htmlspecialchars($page) ?>">
     <header class="topbar">
         <div class="container nav">
             <a class="brand" href="index.php" aria-label="<?= htmlspecialchars($restaurantName, ENT_QUOTES, 'UTF-8') ?> home">
@@ -129,48 +123,146 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
 
     <main>
         <?php if ($page === 'home'): ?>
-        <section class="hero">
-            <div class="container hero-inner">
-                <div class="hero-copy">
-                    <p class="eyebrow"><?= htmlspecialchars($restaurantTagline) ?></p>
-                    <h1>Enjoy delicious meals made for every craving.</h1>
-                    <p class="lead">
-                        From crispy chicken to comforting rice bowls, <?= htmlspecialchars($restaurantName) ?> serves hot meals with quick delivery
-                        and warm hospitality.
+        <section class="home-hero">
+            <div class="container home-hero-grid">
+                <div class="home-hero-copy" data-reveal="up">
+                    <p class="home-eyebrow"><span aria-hidden="true"></span><?= htmlspecialchars($restaurantTagline) ?></p>
+                    <h1 class="home-title">Taste crafted <em>for every craving.</em></h1>
+                    <p class="home-lead">
+                        From crispy chicken to comforting rice bowls, <?= htmlspecialchars($restaurantName) ?> serves hot meals
+                        with quick delivery and warm hospitality.
                     </p>
 
-                    <div class="cta-row">
-                        <a href="index.php?page=menu" class="primary-btn">View menu</a>
-                        <a href="index.php?page=about" class="secondary-btn">Why choose us</a>
+                    <div class="home-actions">
+                        <a class="home-btn home-btn--solid" href="index.php?page=order">
+                            Order now
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                        </a>
+                        <a class="home-btn home-btn--ghost" href="index.php?page=reserve">Reserve a table</a>
                     </div>
 
-                    <div class="stats-row">
-                        <?php foreach ($restaurantStats as $stat): ?>
-                            <div>
-                                <strong><?= htmlspecialchars($stat['value']) ?></strong>
-                                <span><?= htmlspecialchars($stat['label']) ?></span>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
+                    <ul class="home-trust">
+                        <li>
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21c0-6 3-10 8-11-1 6-4 9-8 11Z"/><path d="M12 21C7 18 4 14 4 8c5 1 8 4 8 9"/></svg>
+                            <span><strong>Fresh ingredients</strong><small>Sourced for every service</small></span>
+                        </li>
+                        <li>
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/></svg>
+                            <span><strong>Fast delivery</strong><small>Hot food, quick to your door</small></span>
+                        </li>
+                        <li>
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.6 5.3 5.9.9-4.3 4.2 1 5.8L12 16.5 6.8 19.2l1-5.8L3.5 9.2l5.9-.9L12 3Z"/></svg>
+                            <span><strong>Family favourites</strong><small>Portions made to satisfy</small></span>
+                        </li>
+                    </ul>
                 </div>
 
-                <div class="hero-visual" aria-label="Featured dishes illustration">
-                    <div class="dish-card large-card">
-                        <div class="dish-image dish-one"></div>
-                        <div class="dish-info">
-                            <h3><?= htmlspecialchars($menuItems[0]['name'] ?? 'Fresh from our kitchen') ?></h3>
-                            <p><?= htmlspecialchars($menuItems[0]['description'] ?? 'Explore our menu for today’s selection.') ?></p>
-                            <?php if ($menuItems): ?><span><?= htmlspecialchars($money($menuItems[0]['price'])) ?></span><?php endif; ?>
-                        </div>
+                <div class="home-hero-visual" data-reveal="scale" data-tilt aria-label="Featured dish">
+                    <span class="home-plate-glow" aria-hidden="true"></span>
+                    <span class="home-plate-ring" aria-hidden="true"></span>
+                    <figure class="home-plate">
+                        <img src="<?= htmlspecialchars($heroImage, ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars($heroDishName) ?>" fetchpriority="high">
+                    </figure>
+
+                    <div class="home-pick">
+                        <span class="home-pick-star" aria-hidden="true">★</span>
+                        <span><strong>Top pick</strong><small><?= htmlspecialchars($heroDishName) ?></small></span>
                     </div>
 
-                    <div class="floating-badge">
-                        <span class="badge-icon">★</span>
-                        <div>
-                            <strong>Top pick</strong>
-                            <small>Chef special</small>
-                        </div>
+                    <div class="home-open">
+                        <small>Open daily</small>
+                        <strong><?= htmlspecialchars($openingHours) ?></strong>
                     </div>
+                </div>
+            </div>
+
+            <div class="container home-strip">
+                <div><strong>Made to order</strong><span>Nothing sits under a lamp</span></div>
+                <div><strong>Delivery &amp; takeaway</strong><span>Or dine in with us</span></div>
+                <div><strong><?= count($menuItems) ?></strong><span>dishes on the menu</span></div>
+                <div><strong><?= count($availableTables) ?></strong><span>tables free right now</span></div>
+            </div>
+        </section>
+
+        <section class="home-collection">
+            <div class="container">
+                <header class="home-section-head" data-reveal="up">
+                    <p class="home-eyebrow"><span aria-hidden="true"></span>Chef&rsquo;s favourites</p>
+                    <h2>Signature <em>collection</em></h2>
+                    <p>Handpicked favourites from our kitchen, prepared fresh when you order.</p>
+                </header>
+
+                <div class="home-cards">
+                    <?php foreach (array_slice($menuItems, 0, 4) as $index => $item): ?>
+                        <article class="home-card" data-reveal="up" style="--delay: <?= $index * 90 ?>ms">
+                            <div class="home-card-media <?= htmlspecialchars($item['thumb']) ?>">
+                                <?php if (!empty($item['image_path'])): ?>
+                                    <img src="api.php?action=menu_image&amp;id=<?= (int) $item['id'] ?>&amp;v=<?= rawurlencode($item['image_path']) ?>" alt="<?= htmlspecialchars($item['name']) ?>" loading="lazy" decoding="async">
+                                <?php elseif (!empty($item['image_url'])): ?>
+                                    <img src="<?= htmlspecialchars($item['image_url'], ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars($item['name']) ?>" loading="lazy" decoding="async">
+                                <?php endif; ?>
+                            </div>
+                            <div class="home-card-body">
+                                <h3><?= htmlspecialchars($item['name']) ?></h3>
+                                <p><?= htmlspecialchars($item['description']) ?></p>
+                                <div class="home-card-meta">
+                                    <span class="home-price"><?= htmlspecialchars($money($item['price'])) ?></span>
+                                    <button class="add-btn home-add" type="button" data-item="<?= htmlspecialchars($item['name']) ?>" data-price="<?= (int) $item['price'] ?>" aria-label="Add <?= htmlspecialchars($item['name']) ?> to basket">+</button>
+                                </div>
+                            </div>
+                        </article>
+                    <?php endforeach; ?>
+                    <?php if (!$menuItems): ?>
+                        <p class="home-empty">Our menu is being updated. Please check back soon.</p>
+                    <?php endif; ?>
+                </div>
+
+                <div class="home-view-all">
+                    <a class="home-btn home-btn--ghost" href="index.php?page=menu">View full menu
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <section class="home-story">
+            <div class="container home-story-grid">
+                <div class="home-story-media" data-reveal="left">
+                    <img class="home-story-main" src="images/bg-restaurant-2.jpg" alt="Dining room at <?= htmlspecialchars($restaurantName) ?>" loading="lazy" decoding="async">
+                    <img class="home-story-small" src="images/menu-hero.jpg" alt="A fresh plate from the kitchen" loading="lazy" decoding="async">
+                    <span class="home-story-seal">Fresh daily</span>
+                </div>
+
+                <div class="home-story-copy" data-reveal="right">
+                    <p class="home-eyebrow"><span aria-hidden="true"></span>Our story</p>
+                    <h2>Passion in <em>every plate</em></h2>
+                    <p>
+                        Great food starts with good ingredients and people who care. Our kitchen keeps things simple:
+                        fresh produce, generous portions and meals cooked to order rather than held in a warmer.
+                    </p>
+                    <p>
+                        Whether you are grabbing a quick lunch, feeding the family or booking a table with friends,
+                        the goal is the same &mdash; food you want to come back for.
+                    </p>
+                    <ul class="home-story-points">
+                        <li><strong><?= count($menuItems) ?></strong><span>dishes on the menu</span></li>
+                        <li><strong><?= count($availableTables) ?></strong><span>tables available</span></li>
+                        <li><strong>3</strong><span>ways to order</span></li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="home-band">
+            <div class="container home-band-inner" data-reveal="up">
+                <p class="home-eyebrow"><span aria-hidden="true"></span><?= htmlspecialchars($openingNote) ?> &middot; <?= htmlspecialchars($openingHours) ?></p>
+                <h2>Hungry? <em>We&rsquo;re ready.</em></h2>
+                <p>Order online for delivery or takeaway, or book a table and let us take care of the rest.</p>
+                <div class="home-actions">
+                    <a class="home-btn home-btn--solid" href="index.php?page=order">Order now
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                    </a>
+                    <a class="home-btn home-btn--ghost" href="index.php?page=reserve">Reserve a table</a>
                 </div>
             </div>
         </section>

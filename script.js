@@ -669,3 +669,46 @@ if (reservationForm) {
 }
 
 renderCart();
+
+(() => {
+    if (!document.body?.classList.contains('page-home')) return;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const revealTargets = Array.from(document.querySelectorAll('[data-reveal]'));
+
+    if (reduceMotion || !('IntersectionObserver' in window)) {
+        revealTargets.forEach((element) => {
+            element.classList.add('is-visible');
+            element.removeAttribute('data-reveal');
+        });
+    } else {
+        document.body.classList.add('reveal-ready');
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+                if (!entry.isIntersecting) return;
+                const element = entry.target;
+                element.classList.add('is-visible');
+                observer.unobserve(element);
+                const delay = parseFloat(getComputedStyle(element).transitionDelay) || 0;
+                setTimeout(() => element.removeAttribute('data-reveal'), 1060 + delay * 1000);
+            });
+        }, { threshold: 0.16, rootMargin: '0px 0px -8% 0px' });
+        revealTargets.forEach((element) => observer.observe(element));
+    }
+
+    const canTilt = !reduceMotion && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches;
+    const tiltTarget = document.querySelector('[data-tilt]');
+    if (canTilt && tiltTarget) {
+        const maxTilt = 7;
+        tiltTarget.addEventListener('pointermove', (event) => {
+            const rect = tiltTarget.getBoundingClientRect();
+            const x = (event.clientX - rect.left) / rect.width - 0.5;
+            const y = (event.clientY - rect.top) / rect.height - 0.5;
+            tiltTarget.style.transition = 'transform .18s ease-out';
+            tiltTarget.style.transform = `perspective(1100px) rotateX(${(-y * maxTilt).toFixed(2)}deg) rotateY(${(x * maxTilt).toFixed(2)}deg)`;
+        });
+        tiltTarget.addEventListener('pointerleave', () => {
+            tiltTarget.style.transition = 'transform .6s cubic-bezier(.2, .8, .25, 1)';
+            tiltTarget.style.transform = '';
+        });
+    }
+})();
