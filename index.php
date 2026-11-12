@@ -407,9 +407,13 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                         <div id="customerOrderDiscountRow" hidden><span>Discount</span><strong id="customerOrderDiscount"></strong></div>
                         <div><span>Total</span><strong id="customerOrderTotal"></strong></div>
                         <div><span>Order type</span><strong id="customerOrderType"></strong></div>
-                        <div id="customerOrderAddressRow" hidden><span>Delivery address</span><strong id="customerOrderAddress"></strong></div>
                         <div id="customerOrderMapRow" hidden><span>Delivery location</span><strong><a id="customerOrderMapLink" href="#" target="_blank" rel="noopener noreferrer">Open map</a></strong></div>
+                        <div id="customerOrderLocationStatusRow" hidden><span>Location check</span><strong id="customerOrderLocationStatus"></strong></div>
                         <div><span>Payment preference</span><strong id="customerOrderMethod"></strong></div>
+                    </div>
+                    <div id="customerOrderReply" class="customer-order-reply" hidden>
+                        <span>Message from the restaurant</span>
+                        <p id="customerOrderReplyText"></p>
                     </div>
                     <div id="customerPaymentChoice" class="customer-payment-choice" hidden>
                         <label for="customerPaymentMethod">Choose your preferred payment method</label>
@@ -479,17 +483,15 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                 <option value="dine-in">Dine-in</option>
             </select>
 
-            <label for="deliveryAddress" id="deliveryAddressLabel">Delivery address
-                <textarea id="deliveryAddress" maxlength="500" rows="3" placeholder="Street, area, city and any helpful directions" required></textarea>
-                <small class="form-help">Required for delivery; your address is shared with restaurant staff to fulfill this order.</small>
-            </label>
-
             <div id="deliveryLocationTools" class="delivery-location">
                 <button id="locateMeBtn" class="location-btn" type="button">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s7-5.4 7-11a7 7 0 1 0-14 0c0 5.6 7 11 7 11Z"></path><circle cx="12" cy="10" r="2.6"></circle></svg>
                     <span>Use my current location</span>
                 </button>
-                <p id="locationStatus" class="form-help" role="status" aria-live="polite">Share your GPS pin so our rider can find you faster. You can also paste a Google Maps link in the address box.</p>
+                <p id="locationStatus" class="form-help" role="status" aria-live="polite">Tap the button to share your GPS pin. Our rider follows the pin, so you do not need to type directions.</p>
+                <label for="deliveryMapInput" id="deliveryAddressLabel" class="delivery-link-field">Or paste a Google Maps link <span>(optional)</span>
+                    <input id="deliveryMapInput" type="url" maxlength="500" placeholder="https://maps.google.com/…">
+                </label>
                 <input id="deliveryLat" type="hidden" value="">
                 <input id="deliveryLng" type="hidden" value="">
                 <div id="deliveryMapPreview" class="delivery-map" hidden>
@@ -505,7 +507,7 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                 <?php endforeach; ?>
             </select>
             <label for="orderNotes">Order notes <span>(optional)</span></label>
-            <input id="orderNotes" type="text" maxlength="1000" placeholder="Delivery directions or preferences">
+            <input id="orderNotes" type="text" maxlength="1000" placeholder="Food preferences or anything staff should know">
 
             <button id="confirmPaymentBtn" type="button">Send order request</button>
         </div>
@@ -524,7 +526,7 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
                 <div><span>Next step</span><strong>Wait for staff confirmation</strong></div>
                 <div><span>Order type</span><strong id="confirmationType"></strong></div>
             </div>
-            <p id="confirmationOrderMessage" class="confirmation-note">Our team will contact you to confirm the order. Open your private link to follow progress and choose a payment method after confirmation.</p>
+            <p id="confirmationOrderMessage" class="confirmation-note">Our team will confirm your order on your private link. Keep it open to watch for the confirmation and reply, then choose a payment method.</p>
             <a id="confirmationOrderLink" class="secondary-btn confirmation-order-link" href="#">Open private order link</a>
             <button id="copyOrderLink" class="secondary-btn" type="button">Copy order link</button>
             <button id="doneOrderConfirmation" class="primary-btn" type="button">Done</button>

@@ -34,8 +34,7 @@ const cartChoiceMessage = document.getElementById('cartChoiceMessage');
 const continueShoppingButton = document.getElementById('continueShoppingBtn');
 const checkoutCartButton = document.getElementById('checkoutCartBtn');
 const closeCartChoiceButton = document.getElementById('closeCartChoice');
-const deliveryAddress = document.getElementById('deliveryAddress');
-const deliveryAddressLabel = document.getElementById('deliveryAddressLabel');
+const deliveryMapInput = document.getElementById('deliveryMapInput');
 const deliveryLocationTools = document.getElementById('deliveryLocationTools');
 const locateMeBtn = document.getElementById('locateMeBtn');
 const locationStatus = document.getElementById('locationStatus');
@@ -44,7 +43,7 @@ const deliveryLng = document.getElementById('deliveryLng');
 const deliveryMapPreview = document.getElementById('deliveryMapPreview');
 const deliveryMapFrame = document.getElementById('deliveryMapFrame');
 const deliveryMapLink = document.getElementById('deliveryMapLink');
-const locationIdleMessage = 'Share your GPS pin so our rider can find you faster. You can also paste a Google Maps link in the address box.';
+const locationIdleMessage = 'Tap the button to share your GPS pin. Our rider follows the pin, so you do not need to type directions.';
 let deliveryCoords = null;
 const cart = new Map();
 const cartStorageKey = 'kips-order-cart';
@@ -317,10 +316,42 @@ function closePaymentModal() {
     orderButton?.focus();
 }
 
+let confirmationTrackTimer;
 function closeOrderConfirmationModal() {
+    clearTimeout(confirmationTrackTimer);
     if (!orderConfirmation) return;
     orderConfirmation.hidden = true;
     orderButton?.focus();
+}
+
+function startConfirmationTracking(orderId, token) {
+    clearTimeout(confirmationTrackTimer);
+    if (!orderConfirmation || orderType?.value !== 'delivery') return;
+    const message = document.getElementById('orderConfirmationMessage');
+    const check = async () => {
+        if (!orderConfirmation || orderConfirmation.hidden || !message) return;
+        try {
+            const query = new URLSearchParams({ action: 'customer_order', order: String(orderId), token });
+            const response = await fetch(`api.php?${query}`, { cache: 'no-store' });
+            if (!response.ok) return;
+            const { order } = await response.json();
+            if (!order || orderConfirmation.hidden) return;
+            if (Number(order.delivery_confirmed)) {
+                message.textContent = order.staff_reply
+                    ? `Location confirmed. Message from the restaurant: “${order.staff_reply}”`
+                    : 'Your delivery location has been confirmed by the restaurant. Our rider will follow your pin.';
+                return;
+            }
+            if (order.status !== 'awaiting_verification') {
+                message.textContent = 'Your order has been confirmed by the restaurant. Keep your private link to follow progress.';
+                return;
+            }
+            confirmationTrackTimer = setTimeout(check, 8000);
+        } catch {
+            confirmationTrackTimer = setTimeout(check, 8000);
+        }
+    };
+    confirmationTrackTimer = setTimeout(check, 6000);
 }
 
 closeOrderConfirmation?.addEventListener('click', closeOrderConfirmationModal);
@@ -467,6 +498,7 @@ function resetDeliveryLocation() {
     if (deliveryLng) deliveryLng.value = '';
     if (deliveryMapPreview) deliveryMapPreview.hidden = true;
     if (deliveryMapFrame) deliveryMapFrame.src = 'about:blank';
+    if (deliveryMapInput) deliveryMapInput.value = '';
     if (locationStatus) locationStatus.textContent = locationIdleMessage;
     if (locateMeBtn) locateMeBtn.disabled = false;
 }
@@ -506,34 +538,34 @@ locateMeBtn?.addEventListener('click', () => {
     navigator.geolocation.getCurrentPosition((position) => {
         locateMeBtn.disabled = false;
         const { latitude, longitude } = position.coords;
-        setDeliveryCoords(latitude, longitude, 'GPS pin added. Add your house or street details above so the rider knows exactly where to come.');
+        if (deliveryMapInput) deliveryMapInput.value = '';
+        setDeliveryCoords(latitude, longitude, 'GPS pin added. Our rider will follow this pin — you can send the order now.');
     }, (error) => {
         locateMeBtn.disabled = false;
         if (locationStatus) {
             locationStatus.textContent = error.code === error.PERMISSION_DENIED
-                ? 'Location access is blocked. Allow it in your browser, or type your address above.'
-                : 'We could not get your location just now. Try again or type your address above.';
+                ? 'Location access is blocked. Allow it in your browser, or paste a Google Maps link below.'
+                : 'We could not get your location just now. Try again or paste a Google Maps link below.';
         }
     }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 });
 });
 
-deliveryAddress?.addEventListener('change', () => {
-    if (deliveryAddress.value.trim() === '') return;
-    const coords = extractMapCoords(deliveryAddress.value);
+deliveryMapInput?.addEventListener('input', () => {
+    const link = deliveryMapInput.value.trim();
+    if (link === '') return;
+    const coords = extractMapCoords(link);
     if (coords) {
         setDeliveryCoords(coords.lat, coords.lng, 'Location taken from the Google Maps link you pasted.');
+    } else if (locationStatus && !deliveryCoords) {
+        locationStatus.textContent = 'That link does not include a location. Use “Use my current location” or paste the full Google Maps link.';
     }
 });
 
 orderType?.addEventListener('change', () => {
     const showTable = orderType.value === 'dine-in';
-    const showAddress = orderType.value === 'delivery';
     orderTable.hidden = !showTable;
     orderTableLabel.hidden = !showTable;
     orderTable.required = showTable;
-    deliveryAddress.hidden = !showAddress;
-    deliveryAddressLabel.hidden = !showAddress;
-    deliveryAddress.required = showAddress;
     syncDeliveryLocationVisibility();
     orderMessage.textContent = showTable && !orderTable.options.length
         ? 'No tables are available for dine-in right now.'
@@ -543,8 +575,14 @@ orderType?.addEventListener('change', () => {
 
 confirmPaymentBtn?.addEventListener('click', async () => {
     if (!customerName.reportValidity() || !customerPhone.reportValidity()
-        || (orderType.value === 'delivery' && !deliveryAddress.reportValidity())
         || (orderType.value === 'dine-in' && !orderTable.reportValidity())) return;
+    if (orderType.value === 'delivery' && !deliveryCoords) {
+        if (locationStatus) {
+            locationStatus.textContent = 'Share your GPS location or paste a Google Maps link before sending the order.';
+        }
+        deliveryLocationTools?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+    }
     if (!cart.size) {
         orderMessage.textContent = 'Add a meal to your cart before placing the order.';
         closePaymentModal();
@@ -560,7 +598,7 @@ confirmPaymentBtn?.addEventListener('click', async () => {
             items: Array.from(cart, ([item_name, quantity]) => ({ item_name, quantity })),
             order_type: orderType.value,
             table_number: orderType.value === 'dine-in' ? orderTable.value : '',
-            delivery_address: orderType.value === 'delivery' ? deliveryAddress.value.trim() : '',
+            delivery_address: orderType.value === 'delivery' && extractMapCoords(deliveryMapInput?.value.trim() || '') ? deliveryMapInput.value.trim() : '',
             delivery_lat: orderType.value === 'delivery' && deliveryCoords ? deliveryCoords.lat : '',
             delivery_lng: orderType.value === 'delivery' && deliveryCoords ? deliveryCoords.lng : '',
             notes: orderNotes.value.trim()
@@ -573,10 +611,13 @@ confirmPaymentBtn?.addEventListener('click', async () => {
         document.getElementById('confirmationTotal').textContent = formatKwacha(result.total);
         document.getElementById('confirmationType').textContent = orderType.options[orderType.selectedIndex].text;
         document.getElementById('orderConfirmationTitle').textContent = `Thank you, ${customer}!`;
-        document.getElementById('orderConfirmationMessage').textContent = `We received order #${result.order_id}. Our team will contact you manually to confirm it.`;
+        document.getElementById('orderConfirmationMessage').textContent = orderType.value === 'delivery'
+            ? `We received order #${result.order_id}. Our team is checking your shared location and will reply on your private link. Keep it open so you see the confirmation.`
+            : `We received order #${result.order_id}. Our team will contact you manually to confirm it.`;
         const trackingUrl = new URL('index.php', window.location.href);
         trackingUrl.searchParams.set('order', String(result.order_id));
         trackingUrl.searchParams.set('token', result.tracking_token);
+        startConfirmationTracking(result.order_id, result.tracking_token);
         document.getElementById('confirmationOrderLink').href = trackingUrl.href;
         document.getElementById('copyOrderLink').onclick = async () => {
             try {
@@ -594,7 +635,6 @@ confirmPaymentBtn?.addEventListener('click', async () => {
         closeOrderConfirmation.focus();
         customerName.value = '';
         customerPhone.value = '';
-        deliveryAddress.value = '';
         orderNotes.value = '';
         resetDeliveryLocation();
     } catch (error) {
@@ -628,7 +668,11 @@ async function loadCustomerOrder() {
         const order = result.order;
         const hasPaymentPreference = order.payment_method !== 'Awaiting customer choice';
         const statuses = {
-            awaiting_verification: 'Your order is being reviewed. Our team will contact you to confirm it, and you can cancel it below until then. Payment selection will become available after confirmation.',
+            awaiting_verification: order.order_type === 'delivery'
+                ? (Number(order.delivery_confirmed)
+                    ? 'Your delivery location is confirmed. Our team is finalising your order and will confirm it here shortly.'
+                    : 'Your order is being reviewed. We are checking the location you shared and will reply here. You can cancel below until then; payment selection opens after confirmation.')
+                : 'Your order is being reviewed. Our team will contact you to confirm it, and you can cancel it below until then. Payment selection will become available after confirmation.',
             verified: hasPaymentPreference
                 ? `Your order is confirmed — please be ready to receive your meal. Your preferred method is ${order.payment_method}. Staff will verify payment after receiving it.`
                 : 'Your order is confirmed — please be ready to receive your meal. Choose your preferred payment method below.',
@@ -655,9 +699,6 @@ async function loadCustomerOrder() {
         const cancelButton = document.getElementById('cancelCustomerOrder');
         if (cancelButton) cancelButton.hidden = !order.can_cancel;
         document.getElementById('customerOrderType').textContent = order.order_type.replace('-', ' ');
-        const addressRow = document.getElementById('customerOrderAddressRow');
-        addressRow.hidden = order.order_type !== 'delivery';
-        document.getElementById('customerOrderAddress').textContent = order.delivery_address || '';
         const mapRow = document.getElementById('customerOrderMapRow');
         const mapLink = document.getElementById('customerOrderMapLink');
         const mapLat = Number(order.delivery_lat);
@@ -668,13 +709,27 @@ async function loadCustomerOrder() {
             && Math.abs(mapLat) <= 90 && Math.abs(mapLng) <= 180;
         if (mapRow) mapRow.hidden = !hasMap;
         if (hasMap && mapLink) mapLink.href = googleMapsUrl(mapLat, mapLng);
+        const locationCheckRow = document.getElementById('customerOrderLocationStatusRow');
+        const locationCheck = document.getElementById('customerOrderLocationStatus');
+        const isDelivery = order.order_type === 'delivery';
+        if (locationCheckRow) locationCheckRow.hidden = !isDelivery;
+        if (locationCheck && isDelivery) {
+            locationCheck.textContent = Number(order.delivery_confirmed)
+                ? 'Confirmed by the restaurant — our rider has your pin.'
+                : 'Waiting for the restaurant to confirm your location.';
+        }
+        const replyPanel = document.getElementById('customerOrderReply');
+        const replyText = document.getElementById('customerOrderReplyText');
+        const staffReply = String(order.staff_reply || '').trim();
+        if (replyPanel) replyPanel.hidden = staffReply === '';
+        if (replyText) replyText.textContent = staffReply;
         document.getElementById('customerOrderMethod').textContent = order.payment_method === 'Awaiting customer choice' ? 'Not selected yet' : order.payment_method;
         customerPaymentChoice.hidden = !order.can_choose_payment;
         if (order.can_choose_payment && Array.from(customerPaymentMethod.options).some((option) => option.value === order.payment_method)) {
             customerPaymentMethod.value = order.payment_method;
         }
         if (['awaiting_verification', 'verified', 'preparing'].includes(order.status)) {
-            customerOrderRefreshTimer = setTimeout(loadCustomerOrder, 15000);
+            customerOrderRefreshTimer = setTimeout(loadCustomerOrder, order.status === 'awaiting_verification' ? 10000 : 15000);
         }
     } catch (error) {
         customerOrderStatus.textContent = error.message;

@@ -15,6 +15,9 @@ let cookie;
 let csrfToken;
 let dataDirectory;
 let serverOutput = '';
+let deliveryOrderId;
+let deliveryToken;
+let takeawayOrderId;
 
 function freePort() {
     return new Promise((resolve, reject) => {
@@ -88,22 +91,31 @@ after(async () => {
     if (dataDirectory) await rm(dataDirectory, { recursive: true, force: true });
 });
 
-test('requires a delivery address and accepts multiple items with the address on the private order link', async () => {
-    const missingAddress = await apiRequest('create_order', {
+test('requires a shared delivery location and accepts multiple items', async () => {
+    const missingLocation = await apiRequest('create_order', {
         customer_name: 'Test Guest',
         customer_phone: '+265 991 000 001',
         items: [{ item_name: 'Chips & Chicken', quantity: 1 }],
         order_type: 'delivery'
     });
-    assert.equal(missingAddress.response.status, 422);
-    assert.match(missingAddress.body.error, /Delivery address/);
+    assert.equal(missingLocation.response.status, 422);
+    assert.match(missingLocation.body.error, /GPS location/);
+
+    const writtenDirections = await apiRequest('create_order', {
+        customer_name: 'Test Guest',
+        customer_phone: '+265 991 000 001',
+        items: [{ item_name: 'Chips & Chicken', quantity: 1 }],
+        order_type: 'delivery',
+        delivery_address: '12 Test Road, turn left after the church'
+    });
+    assert.equal(writtenDirections.response.status, 422);
+    assert.match(writtenDirections.body.error, /Google Maps location link|directions/);
 
     const invalidPin = await apiRequest('create_order', {
         customer_name: 'Test Guest',
         customer_phone: '+265 991 000 001',
         items: [{ item_name: 'Chips & Chicken', quantity: 1 }],
         order_type: 'delivery',
-        delivery_address: '12 Test Road, Area 1, Lilongwe',
         delivery_lat: 999,
         delivery_lng: 33.7741
     });
@@ -118,13 +130,14 @@ test('requires a delivery address and accepts multiple items with the address on
             { item_name: 'Cake', quantity: 1 }
         ],
         order_type: 'delivery',
-        delivery_address: '12 Test Road, Area 1, Lilongwe',
         delivery_lat: -13.9626,
         delivery_lng: 33.7741
     });
     assert.equal(created.response.status, 201);
     assert.equal(created.body.total, 22000);
     assert.match(created.body.tracking_token, /^[a-f0-9]{64}$/);
+    deliveryOrderId = created.body.order_id;
+    deliveryToken = created.body.tracking_token;
 
     const tracking = await fetch(
         `${baseUrl}/api.php?action=customer_order&order=${created.body.order_id}&token=${created.body.tracking_token}`,
@@ -132,13 +145,34 @@ test('requires a delivery address and accepts multiple items with the address on
     );
     assert.equal(tracking.status, 200);
     const result = await tracking.json();
-    assert.equal(result.order.delivery_address, '12 Test Road, Area 1, Lilongwe');
+    assert.equal(result.order.delivery_address, '');
+    assert.equal(Number(result.order.delivery_confirmed), 0);
+    assert.equal(result.order.staff_reply, '');
     assert.ok(Math.abs(Number(result.order.delivery_lat) - -13.9626) < 1e-6);
     assert.ok(Math.abs(Number(result.order.delivery_lng) - 33.7741) < 1e-6);
     assert.deepEqual(result.order.items.map(({ item_name, quantity }) => [item_name, Number(quantity)]), [
         ['Chips & Chicken', 2],
         ['Cake', 1]
     ]);
+});
+
+test('accepts a Google Maps link without GPS coordinates', async () => {
+    const created = await apiRequest('create_order', {
+        customer_name: 'Map Link Guest',
+        customer_phone: '+265 991 000 003',
+        items: [{ item_name: 'Cake', quantity: 1 }],
+        order_type: 'delivery',
+        delivery_address: 'https://www.google.com/maps/@-13.9626,33.7741,17z'
+    });
+    assert.equal(created.response.status, 201);
+
+    const tracking = await fetch(
+        `${baseUrl}/api.php?action=customer_order&order=${created.body.order_id}&token=${created.body.tracking_token}`,
+        { headers: { Cookie: cookie } }
+    );
+    const result = await tracking.json();
+    assert.ok(Math.abs(Number(result.order.delivery_lat) - -13.9626) < 1e-6);
+    assert.ok(Math.abs(Number(result.order.delivery_lng) - 33.7741) < 1e-6);
 });
 
 test('allows takeaway orders without a delivery address', async () => {
@@ -149,6 +183,7 @@ test('allows takeaway orders without a delivery address', async () => {
         order_type: 'takeaway'
     });
     assert.equal(created.response.status, 201);
+    takeawayOrderId = created.body.order_id;
 
     const tracking = await fetch(
         `${baseUrl}/api.php?action=customer_order&order=${created.body.order_id}&token=${created.body.tracking_token}`,
@@ -158,7 +193,7 @@ test('allows takeaway orders without a delivery address', async () => {
     assert.equal(result.order.delivery_address, '');
 });
 
-test('exposes delivery details to authorized restaurant staff', async () => {
+test('lets staff confirm the delivery location and reply to the customer', async () => {
     const setup = await apiRequest('setup_admin', {
         name: 'Test Administrator',
         username: 'test-admin',
@@ -171,11 +206,32 @@ test('exposes delivery details to authorized restaurant staff', async () => {
     const response = await fetch(`${baseUrl}/api.php?action=dashboard`, { headers: { Cookie: cookie } });
     assert.equal(response.status, 200);
     const dashboard = await response.json();
-    const deliveryOrder = dashboard.orders.find((order) => order.delivery_address === '12 Test Road, Area 1, Lilongwe');
-    assert.ok(deliveryOrder, 'The dashboard should include the delivery address on the order ticket');
+    const deliveryOrder = dashboard.orders.find((order) => Number(order.id) === Number(deliveryOrderId));
+    assert.ok(deliveryOrder, 'The dashboard should include the delivery order');
+    assert.equal(Number(deliveryOrder.delivery_confirmed), 0);
     assert.ok(Math.abs(Number(deliveryOrder.delivery_lat) - -13.9626) < 1e-6, 'The dashboard should include the delivery GPS pin');
     assert.deepEqual(deliveryOrder.lines.map(({ item_name, quantity }) => [item_name, Number(quantity)]), [
         ['Chips & Chicken', 2],
         ['Cake', 1]
     ]);
+
+    const takeaway = await apiRequest('confirm_delivery', { id: takeawayOrderId, reply: 'Hello' });
+    assert.equal(takeaway.response.status, 422);
+    assert.match(takeaway.body.error, /delivery orders/);
+
+    const confirmation = await apiRequest('confirm_delivery', {
+        id: deliveryOrderId,
+        reply: 'Location confirmed. Your rider is on the way.'
+    });
+    assert.equal(confirmation.response.status, 200);
+    assert.match(confirmation.body.message, /confirmed/i);
+
+    const tracking = await fetch(
+        `${baseUrl}/api.php?action=customer_order&order=${deliveryOrderId}&token=${deliveryToken}`,
+        { headers: { Cookie: cookie } }
+    );
+    assert.equal(tracking.status, 200);
+    const tracked = await tracking.json();
+    assert.equal(Number(tracked.order.delivery_confirmed), 1);
+    assert.equal(tracked.order.staff_reply, 'Location confirmed. Your rider is on the way.');
 });

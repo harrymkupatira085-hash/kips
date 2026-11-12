@@ -688,13 +688,19 @@ function orderCard(order, orders) {
         ? order.lines.map((item) => `${item.item_name} × ${item.quantity}`).join(', ')
         : `${order.item_name} × ${order.quantity}`;
     const deliveryMapUrl = orderMapUrl(order);
-    const deliveryAddress = order.order_type === 'delivery' && order.delivery_address
-        ? `<p class="ticket-address"><strong>Delivery to:</strong> ${escapeHtml(order.delivery_address)}${deliveryMapUrl ? ` <a class="ticket-map-link" href="${deliveryMapUrl}" target="_blank" rel="noopener noreferrer">Open map ↗</a>` : ''}</p>`
+    const isDelivery = order.order_type === 'delivery';
+    const locationConfirmed = Number(order.delivery_confirmed) === 1;
+    const deliveryLocation = isDelivery
+        ? `<p class="ticket-address"><strong>Delivery location:</strong> ${deliveryMapUrl ? 'Pin shared' : 'No pin shared yet'}${deliveryMapUrl ? ` <a class="ticket-map-link" href="${deliveryMapUrl}" target="_blank" rel="noopener noreferrer">Open map ↗</a>` : ''} <span class="location-state${locationConfirmed ? ' is-confirmed' : ''}">${locationConfirmed ? '✓ Confirmed' : 'Needs your check'}</span></p>`
+            + (order.delivery_address && !deliveryMapUrl ? `<p class="ticket-address"><strong>Address:</strong> ${escapeHtml(order.delivery_address)}</p>` : '')
+        : '';
+    const deliveryReply = isDelivery && deliveryMapUrl && !['completed', 'cancelled'].includes(status)
+        ? `<div class="ticket-location-reply"><input class="ticket-reply-input" maxlength="500" value="${escapeHtml(order.staff_reply || '')}" placeholder="Reply to the customer, e.g. Rider is on the way" aria-label="Reply to ${escapeHtml(order.customer_name)}"><button class="mini-primary" data-action="confirm_delivery" data-id="${order.id}">${locationConfirmed ? 'Update reply' : 'Confirm location & reply'}</button></div>`
         : '';
     return `<article class="ticket-card">
         <div class="ticket-top"><span class="ticket-id">#${order.id} <i class="order-type-dot type-${escapeHtml(order.order_type)}"></i>${escapeHtml(order.order_type)}${order.table_number ? ` · ${escapeHtml(order.table_number)}` : ''}</span><span class="status-pill status-${escapeHtml(status)}">${escapeHtml(statusLabel)}${status === 'verified' && order.queue_position ? ` · #${order.queue_position}` : ''}</span></div>
         <div class="ticket-customer"><span class="order-initial">${escapeHtml(order.customer_name.charAt(0).toUpperCase())}</span><span><strong>${escapeHtml(order.customer_name)}</strong><small>${escapeHtml(order.customer_phone)}</small></span></div>
-        <div class="ticket-food"><strong>${escapeHtml(itemSummary)}</strong>${deliveryAddress}${order.notes ? `<p>${escapeHtml(order.notes)}</p>` : ''}</div>
+        <div class="ticket-food"><strong>${escapeHtml(itemSummary)}</strong>${deliveryLocation}${deliveryReply}${order.staff_reply ? `<p class="ticket-reply"><strong>Your reply:</strong> ${escapeHtml(order.staff_reply)}</p>` : ''}${order.notes ? `<p>${escapeHtml(order.notes)}</p>` : ''}</div>
         <div class="ticket-total"><span>${formatPrice(order.total_price)}</span><small>${paymentState} · ${escapeHtml(order.payment_method)}</small></div>
         <div class="ticket-meta"><span>${dateLabel(order.created_at, timestampsAreUtc)}</span></div>
         <div class="ticket-actions">${actions || '<span class="app-muted">No actions available</span>'}</div>
@@ -746,15 +752,17 @@ function kitchenCard(order, firstVerifiedId) {
     }
     const guestWhatsApp = whatsappGuestLink(order.customer_phone, guestStatusMessage(order));
     const kitchenMapUrl = orderMapUrl(order);
-    const address = order.order_type === 'delivery' && order.delivery_address
-        ? `<p class="kitchen-address"><strong>Deliver to:</strong> ${escapeHtml(order.delivery_address)}${kitchenMapUrl ? ` <a class="kitchen-map-link" href="${kitchenMapUrl}" target="_blank" rel="noopener noreferrer">Open map ↗</a>` : ''}</p>`
+    const locationConfirmed = Number(order.delivery_confirmed) === 1;
+    const location = order.order_type === 'delivery'
+        ? `<p class="kitchen-address"><strong>Delivery location:</strong> ${kitchenMapUrl ? 'Pin shared' : 'No pin shared yet'}${kitchenMapUrl ? ` <a class="kitchen-map-link" href="${kitchenMapUrl}" target="_blank" rel="noopener noreferrer">Open map ↗</a>` : ''} <span class="location-state${locationConfirmed ? ' is-confirmed' : ''}">${locationConfirmed ? '✓ Confirmed' : 'Needs check'}</span></p>`
+            + (order.delivery_address && !kitchenMapUrl ? `<p class="kitchen-address"><strong>Address:</strong> ${escapeHtml(order.delivery_address)}</p>` : '')
         : '';
     return `<article class="kitchen-card status-${escapeHtml(status)}">
         <div class="kitchen-card-head"><span class="kitchen-order-number">#${order.id}</span><span class="kitchen-timer">${escapeHtml(kitchenElapsed(order.created_at))}</span></div>
         <div class="kitchen-meta"><span>${escapeHtml(order.customer_name)}</span><span>${escapeHtml(order.order_type)}${order.table_number ? ` · ${escapeHtml(order.table_number)}` : ''}</span></div>
         <ul class="kitchen-food">${lines}</ul>
         ${order.notes ? `<p class="kitchen-note">${escapeHtml(order.notes)}</p>` : ''}
-        ${address}
+        ${location}${order.staff_reply ? `<p class="kitchen-note"><strong>Reply:</strong> ${escapeHtml(order.staff_reply)}</p>` : ''}
         <div class="kitchen-card-foot"><strong>${formatPrice(order.total_price)}</strong><span>${escapeHtml(dateLabel(order.created_at, timestampsAreUtc))}</span></div>
         <div class="kitchen-actions">${actions}${guestWhatsApp ? `<a class="mini-quiet" href="${escapeHtml(guestWhatsApp)}" target="_blank" rel="noopener noreferrer">${escapeHtml(guestNotifyLabel(order))}</a>` : ''}</div>
     </article>`;
@@ -773,7 +781,7 @@ function showKitchenTicket(orderId) {
         ? order.lines.map((item) => `<tr><td>${escapeHtml(item.item_name)}</td><td>× ${item.quantity}</td></tr>`).join('')
         : `<tr><td>${escapeHtml(order.item_name)}</td><td>× ${order.quantity}</td></tr>`;
     popup.document.open();
-    popup.document.write(`<!doctype html><html><head><title>Kitchen ticket #${order.id}</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:18px Arial,sans-serif;max-width:360px;margin:24px auto;color:#111;padding:0 16px}h1{font-size:26px;margin-bottom:4px}small{color:#555}h2{font-size:40px;margin:12px 0}table{width:100%;border-collapse:collapse;margin:16px 0}td{padding:8px 0;border-bottom:1px dashed #bbb}td:last-child{text-align:right}.address,.notes{border:2px solid #111;padding:8px;margin:12px 0}button{width:100%;background:#111;color:#fff;border:0;border-radius:8px;padding:12px;font-weight:bold;font-size:16px}@media print{button{display:none}body{margin:0;max-width:none}}</style></head><body><h1>${escapeHtml(restaurantName)}</h1><small>KITCHEN TICKET · ${escapeHtml(order.order_type)}${order.table_number ? ' · ' + escapeHtml(order.table_number) : ''}</small><h2>Order #${order.id}</h2><p>${escapeHtml(kitchenElapsed(order.created_at))}</p><table>${lines}</table>${order.notes ? `<p class="notes"><strong>Notes:</strong> ${escapeHtml(order.notes)}</p>` : ''}${order.order_type === 'delivery' && order.delivery_address ? `<p class="address"><strong>Deliver to:</strong> ${escapeHtml(order.delivery_address)}</p>` : ''}${order.order_type === 'delivery' && orderMapUrl(order) ? `<p class="address"><a href="${orderMapUrl(order)}" target="_blank" rel="noopener noreferrer">Open delivery location in Google Maps</a></p>` : ''}<p><strong>${escapeHtml(order.customer_name)}</strong><br>${escapeHtml(order.customer_phone)}</p><button onclick="window.print()">Print ticket</button></body></html>`);
+    popup.document.write(`<!doctype html><html><head><title>Kitchen ticket #${order.id}</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:18px Arial,sans-serif;max-width:360px;margin:24px auto;color:#111;padding:0 16px}h1{font-size:26px;margin-bottom:4px}small{color:#555}h2{font-size:40px;margin:12px 0}table{width:100%;border-collapse:collapse;margin:16px 0}td{padding:8px 0;border-bottom:1px dashed #bbb}td:last-child{text-align:right}.address,.notes{border:2px solid #111;padding:8px;margin:12px 0}button{width:100%;background:#111;color:#fff;border:0;border-radius:8px;padding:12px;font-weight:bold;font-size:16px}@media print{button{display:none}body{margin:0;max-width:none}}</style></head><body><h1>${escapeHtml(restaurantName)}</h1><small>KITCHEN TICKET · ${escapeHtml(order.order_type)}${order.table_number ? ' · ' + escapeHtml(order.table_number) : ''}</small><h2>Order #${order.id}</h2><p>${escapeHtml(kitchenElapsed(order.created_at))}</p><table>${lines}</table>${order.notes ? `<p class="notes"><strong>Notes:</strong> ${escapeHtml(order.notes)}</p>` : ''}${order.order_type === 'delivery' ? `<p class="address"><strong>Delivery location:</strong> ${Number(order.delivery_confirmed) ? 'Confirmed' : 'Awaiting check'}</p>${order.delivery_address && !orderMapUrl(order) ? `<p class="address"><strong>Address:</strong> ${escapeHtml(order.delivery_address)}</p>` : ''}${orderMapUrl(order) ? `<p class="address"><a href="${orderMapUrl(order)}" target="_blank" rel="noopener noreferrer">Open delivery location in Google Maps</a></p>` : ''}` : ''}${order.staff_reply ? `<p class="notes"><strong>Reply sent:</strong> ${escapeHtml(order.staff_reply)}</p>` : ''}<p><strong>${escapeHtml(order.customer_name)}</strong><br>${escapeHtml(order.customer_phone)}</p><button onclick="window.print()">Print ticket</button></body></html>`);
     popup.document.close();
 }
 
@@ -1353,6 +1361,12 @@ appContent.addEventListener('click', async (event) => {
             let result;
             if (action === 'verify') {
                 result = await request('verify_order', { id: Number(button.dataset.id) });
+            } else if (action === 'confirm_delivery') {
+                const replyInput = button.parentElement.querySelector('.ticket-reply-input');
+                result = await request('confirm_delivery', {
+                    id: Number(button.dataset.id),
+                    reply: replyInput ? replyInput.value.trim() : ''
+                });
             } else if (action === 'up' || action === 'down') {
                 result = await request('move_order', { id: Number(button.dataset.id), direction: action });
             } else if (action === 'pay') {

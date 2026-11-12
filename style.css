@@ -6678,6 +6678,89 @@ select {
     font-weight: 700;
 }
 
+.delivery-link-field {
+    display: block;
+}
+
+.delivery-link-field span {
+    color: var(--muted);
+    font-weight: 400;
+}
+
+.delivery-link-field input {
+    width: 100%;
+    margin-top: 6px;
+}
+
+.location-state {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(249, 115, 22, .12);
+    color: #b45309;
+    font-size: .72rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.location-state.is-confirmed {
+    background: rgba(34, 197, 94, .14);
+    color: #15803d;
+}
+
+.ticket-location-reply {
+    display: grid;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.ticket-location-reply .ticket-reply-input {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid rgba(124, 58, 18, .16);
+    border-radius: 10px;
+    font: inherit;
+    font-size: .84rem;
+}
+
+.ticket-location-reply .mini-primary {
+    justify-self: start;
+}
+
+.ticket-reply {
+    margin: 6px 0 0;
+    color: #56625b;
+    font-size: .86rem;
+}
+
+.customer-order-reply {
+    display: grid;
+    gap: 6px;
+    margin: 18px 0;
+    padding: 14px 16px;
+    border: 1px solid rgba(249, 166, 92, .35);
+    border-radius: 14px;
+    background: rgba(249, 166, 92, .08);
+}
+
+.customer-order-reply[hidden] {
+    display: none;
+}
+
+.customer-order-reply span {
+    color: var(--muted);
+    font-size: .72rem;
+    font-weight: 700;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+}
+
+.customer-order-reply p {
+    margin: 0;
+    line-height: 1.55;
+}
+
 /* ============================================================
    Shared dark theme for the public pages
    (menu, order, reserve, about — the landing page has its own)
@@ -6957,6 +7040,21 @@ body.theme-dark .location-btn:hover {
 body.theme-dark .delivery-map iframe {
     border-color: rgba(246, 239, 228, .14);
     background: #141110;
+}
+
+body.theme-dark .location-state {
+    background: rgba(249, 166, 92, .16);
+    color: #f9a65c;
+}
+
+body.theme-dark .location-state.is-confirmed {
+    background: rgba(74, 222, 128, .14);
+    color: #86efac;
+}
+
+body.theme-dark .customer-order-reply {
+    border-color: rgba(249, 166, 92, .3);
+    background: rgba(249, 166, 92, .07);
 }
 
 /* Reservation page */

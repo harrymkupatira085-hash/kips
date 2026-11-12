@@ -133,6 +133,26 @@ function api_clean_text($value, int $maxLength, string $label): string
     return $value;
 }
 
+function api_extract_map_coords(string $text): ?array
+{
+    $patterns = [
+        '/@(-?\d{1,3}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)/',
+        '/[?&](?:q|query|ll|daddr|destination)=(-?\d{1,3}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)/',
+        '/!3d(-?\d{1,3}(?:\.\d+)?)!4d(-?\d{1,3}(?:\.\d+)?)/'
+    ];
+    foreach ($patterns as $pattern) {
+        if (!preg_match($pattern, $text, $match)) {
+            continue;
+        }
+        $lat = (float) $match[1];
+        $lng = (float) $match[2];
+        if ($lat >= -90 && $lat <= 90 && $lng >= -180 && $lng <= 180) {
+            return ['lat' => $lat, 'lng' => $lng];
+        }
+    }
+    return null;
+}
+
 function api_audit(string $action, string $entity, ?int $entityId, string $details = ''): void
 {
     $staff = restaurant_current_staff();
@@ -257,7 +277,7 @@ try {
             api_response(['error' => 'This order link is invalid.'], 404);
         }
         $statement = restaurant_db()->prepare(
-            'SELECT id, subtotal, delivery_fee, tax_amount, discount, total_price, payment_method, status, order_type, delivery_address, delivery_lat, delivery_lng,
+            'SELECT id, subtotal, delivery_fee, tax_amount, discount, total_price, payment_method, status, order_type, delivery_address, delivery_lat, delivery_lng, delivery_confirmed, staff_reply,
                     (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = orders.id AND status = \'completed\') AS paid_amount
              FROM orders WHERE id = ? AND customer_token_hash = ?'
         );
@@ -311,7 +331,7 @@ try {
         )->fetchAll() : [];
         $orders = $db->query(
             'SELECT id, customer_name, customer_phone, item_name, quantity, unit_price, subtotal, delivery_fee, tax_amount, discount, total_price,
-                    payment_method, status, queue_position, order_type, table_number, delivery_address, delivery_lat, delivery_lng, notes, created_at,
+                    payment_method, status, queue_position, order_type, table_number, delivery_address, delivery_lat, delivery_lng, delivery_confirmed, staff_reply, notes, created_at,
                     (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = orders.id AND status = \'completed\') AS paid_amount
              FROM orders
              ORDER BY CASE status WHEN \'awaiting_verification\' THEN 0 WHEN \'verified\' THEN 1 WHEN \'preparing\' THEN 2 ELSE 3 END,
@@ -677,7 +697,11 @@ try {
         $deliveryLat = null;
         $deliveryLng = null;
         if ($orderType === 'delivery') {
-            $deliveryAddress = api_clean_text($input['delivery_address'] ?? null, 500, 'Delivery address');
+            $addressInput = $input['delivery_address'] ?? '';
+            if (!is_string($addressInput) || mb_strlen(trim($addressInput)) > 500) {
+                api_response(['error' => 'The shared location link is too long.'], 422);
+            }
+            $deliveryAddress = trim($addressInput);
             $latInput = $input['delivery_lat'] ?? null;
             $lngInput = $input['delivery_lng'] ?? null;
             $hasMapPin = ($latInput !== null && $latInput !== '') || ($lngInput !== null && $lngInput !== '');
@@ -688,6 +712,20 @@ try {
                     || $deliveryLat < -90 || $deliveryLat > 90
                     || $deliveryLng < -180 || $deliveryLng > 180) {
                     api_response(['error' => 'The delivery location pin is invalid. Share your location again.'], 422);
+                }
+            } elseif ($deliveryAddress !== '') {
+                $linkCoords = api_extract_map_coords($deliveryAddress);
+                if ($linkCoords !== null) {
+                    $deliveryLat = $linkCoords['lat'];
+                    $deliveryLng = $linkCoords['lng'];
+                }
+            }
+            if (!$staff) {
+                if ($deliveryAddress !== '' && api_extract_map_coords($deliveryAddress) === null) {
+                    api_response(['error' => 'Share a Google Maps location link instead of written directions.'], 422);
+                }
+                if ($deliveryLat === null || $deliveryLng === null) {
+                    api_response(['error' => 'Share your GPS location or paste a Google Maps link so our rider can find you.'], 422);
                 }
             }
         }
@@ -1299,6 +1337,35 @@ try {
         $db->commit();
         api_audit('order_verified', 'order', (int) $id, 'Order confirmed with the guest and added to the serving queue');
         api_response(['message' => 'Order confirmed and added to the manual serving queue.']);
+    }
+
+    if ($action === 'confirm_delivery') {
+        api_require_permission('orders');
+        $id = filter_var($input['id'] ?? null, FILTER_VALIDATE_INT);
+        if (!$id || $id < 1) {
+            api_response(['error' => 'Invalid order.'], 422);
+        }
+        $replyInput = $input['reply'] ?? '';
+        if (!is_string($replyInput) || mb_strlen(trim($replyInput)) > 500) {
+            api_response(['error' => 'Keep the reply to 500 characters or fewer.'], 422);
+        }
+        $reply = trim($replyInput);
+        $statement = $db->prepare('SELECT id, order_type, delivery_lat, delivery_lng FROM orders WHERE id = ?');
+        $statement->execute([$id]);
+        $order = $statement->fetch();
+        if (!$order) {
+            api_response(['error' => 'Order not found.'], 404);
+        }
+        if ($order['order_type'] !== 'delivery') {
+            api_response(['error' => 'Only delivery orders have a location to confirm.'], 422);
+        }
+        if ($order['delivery_lat'] === null || $order['delivery_lng'] === null) {
+            api_response(['error' => 'The customer has not shared a location yet. Ask them for a GPS pin or Google Maps link.'], 409);
+        }
+        $update = $db->prepare("UPDATE orders SET delivery_confirmed = 1, staff_reply = CASE WHEN ? = '' THEN staff_reply ELSE ? END WHERE id = ?");
+        $update->execute([$reply, $reply, $id]);
+        api_audit('delivery_location_confirmed', 'order', (int) $id, $reply !== '' ? 'Location confirmed with a reply to the customer' : 'Location confirmed');
+        api_response(['message' => 'Delivery location confirmed. The customer can see your reply on their private order link.']);
     }
 
     if ($action === 'set_order_status') {
