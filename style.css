@@ -380,10 +380,26 @@ select {
 }
 
 .hero {
+    position: relative;
     padding: 72px 0 40px;
 }
 
+.hero::before {
+    content: "";
+    position: absolute;
+    inset: -12% -6% auto -6%;
+    height: 620px;
+    background:
+        radial-gradient(40% 62% at 16% 32%, rgba(249, 115, 22, 0.16), transparent 70%),
+        radial-gradient(34% 56% at 84% 16%, rgba(255, 194, 96, 0.3), transparent 72%);
+    filter: blur(12px);
+    pointer-events: none;
+    z-index: 0;
+}
+
 .hero-inner {
+    position: relative;
+    z-index: 1;
     display: grid;
     grid-template-columns: 1.1fr 0.9fr;
     align-items: center;
@@ -468,6 +484,18 @@ select {
 .large-card {
     width: min(100%, 440px);
     transform: rotate(-3deg);
+    animation: dishFloat 7s ease-in-out infinite;
+}
+
+@keyframes dishFloat {
+    0%,
+    100% {
+        transform: rotate(-3deg) translateY(0);
+    }
+
+    50% {
+        transform: rotate(-2.2deg) translateY(-10px);
+    }
 }
 
 .dish-image {
@@ -512,6 +540,7 @@ select {
     position: absolute;
     left: 8px;
     bottom: 42px;
+    z-index: 2;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -829,7 +858,7 @@ select {
 .menu-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 22px;
+    gap: 26px;
     scroll-margin-top: 100px;
 }
 
@@ -858,7 +887,7 @@ select {
 
 .menu-thumb {
     position: relative;
-    height: 200px;
+    height: 224px;
     overflow: hidden;
     background-color: #f3e2cc;
     background-size: cover;
@@ -955,7 +984,7 @@ select {
     flex: 0 0 50%;
     width: 50%;
     height: auto;
-    min-height: 330px;
+    min-height: 352px;
 }
 
 .menu-card--featured .menu-content {
@@ -975,7 +1004,8 @@ select {
 @media (prefers-reduced-motion: reduce) {
     .menu-card,
     .menu-hero-media img,
-    .menu-hero-badge {
+    .menu-hero-badge,
+    .large-card {
         animation: none;
     }
 
@@ -2331,6 +2361,37 @@ select {
 
     .hero {
         padding-top: 42px;
+        padding-bottom: 24px;
+    }
+
+    .hero-visual {
+        min-height: 0;
+        padding-bottom: 8px;
+    }
+
+    .floating-badge {
+        position: static;
+        margin: 14px auto 0;
+        width: fit-content;
+        box-shadow: 0 12px 28px rgba(94, 50, 8, 0.12);
+    }
+
+    .menu-filters {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        margin-inline: -16px;
+        padding: 2px 16px 8px;
+        scroll-snap-type: x proximity;
+        scrollbar-width: none;
+    }
+
+    .menu-filters::-webkit-scrollbar {
+        display: none;
+    }
+
+    .menu-filter {
+        flex: 0 0 auto;
+        scroll-snap-align: start;
     }
 
     .menu-hero-copy h1 {
@@ -2360,6 +2421,7 @@ select {
 
     .menu-grid {
         grid-template-columns: 1fr;
+        gap: 20px;
     }
 
     .footer-main {
