@@ -89,35 +89,14 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
 
             <nav class="main-nav" id="main-nav" aria-label="Main navigation">
                 <a href="index.php?page=menu" <?= $page === 'menu' ? 'aria-current="page"' : '' ?>>
-                    <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3v6a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2V3M7 11v10"/><path d="M17 3c-1.7 0-3 1.8-3 4s1.3 4 3 4 3-1.8 3-4-1.3-4-3-4ZM17 11v10"/></svg>
                     <span>Menu</span>
                 </a>
-                <a href="index.php?page=reserve" <?= $page === 'reserve' ? 'aria-current="page"' : '' ?>>
-                    <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg>
-                    <span>Reserve</span>
-                </a>
-                <a href="index.php?page=about" <?= $page === 'about' ? 'aria-current="page"' : '' ?>>
-                    <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.6 5.3 5.9.9-4.3 4.2 1 5.8L12 16.5 6.8 19.2l1-5.8L3.5 9.2l5.9-.9L12 3Z"/></svg>
-                    <span>About</span>
-                </a>
                 <a class="nav-menu-cta" href="index.php?page=order">
-                    <span>Order now</span>
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-                </a>
-            </nav>
-
-            <div class="header-actions">
-                <a href="index.php?page=order" class="nav-button">
-                    <svg class="nav-button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7h12l1 13H5L6 7Z"/><path d="M9 7V6a3 3 0 0 1 6 0v1"/></svg>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7h12l1 13H5L6 7Z"/><path d="M9 7V6a3 3 0 0 1 6 0v1"/></svg>
                     <span>Order now</span>
                     <span id="navCartCount" class="nav-cart-count" aria-label="0 items in cart" hidden>0</span>
                 </a>
-            </div>
-
-            <button class="mobile-nav-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="main-nav">
-                <span class="menu-line" aria-hidden="true"></span>
-                <span class="menu-line" aria-hidden="true"></span>
-            </button>
+            </nav>
         </div>
     </header>
 
@@ -573,7 +552,11 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
             </div>
             <div class="footer-bottom">
                 <p>© <?= date('Y') ?> <?= htmlspecialchars($restaurantName) ?> Restaurant. All rights reserved.</p>
-                <a href="admin.php">Administrator portal <span aria-hidden="true">→</span></a>
+                <nav class="footer-links" aria-label="Restaurant pages">
+                    <a href="index.php?page=reserve">Reserve a table</a>
+                    <a href="index.php?page=about">About us</a>
+                    <a href="admin.php">Administrator portal <span aria-hidden="true">→</span></a>
+                </nav>
             </div>
         </div>
     </footer>
