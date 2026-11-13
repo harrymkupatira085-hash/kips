@@ -108,6 +108,36 @@ function restaurant_menu_image_directory(): string
     return $directory;
 }
 
+function restaurant_db_diagnostic(): ?array
+{
+    return $GLOBALS['restaurant_db_failure'] ?? null;
+}
+
+function restaurant_mysql_error_detail(PDOException $exception): array
+{
+    $message = strtolower($exception->getMessage());
+    $driverCode = (int) ($exception->errorInfo[1] ?? 0);
+    $category = 'connection_failed';
+    if ($driverCode === 1045 || $driverCode === 1698 || str_contains($message, 'access denied')) {
+        $category = 'access_denied';
+    } elseif ($driverCode === 1049 || str_contains($message, 'unknown database')) {
+        $category = 'unknown_database';
+    } elseif ($driverCode === 1044) {
+        $category = 'database_access_denied';
+    } elseif ($driverCode === 3159 || str_contains($message, 'insecure transport')) {
+        $category = 'tls_required';
+    } elseif ($driverCode === 2002 || str_contains($message, 'getaddrinfo') || str_contains($message, 'connection refused')) {
+        $category = 'host_unreachable';
+    } elseif (str_contains($message, 'certificate')) {
+        $category = 'tls_certificate';
+    }
+    return [
+        'category' => $category,
+        'driver_code' => $driverCode,
+        'sqlstate' => is_string($exception->getCode()) ? $exception->getCode() : ''
+    ];
+}
+
 function restaurant_db(): PDO
 {
     static $db = null;
@@ -119,6 +149,8 @@ function restaurant_db(): PDO
     $username = restaurant_config('KIPS_DB_USER');
     $password = restaurant_config('KIPS_DB_PASSWORD');
     $host = restaurant_config('KIPS_DB_HOST');
+    $port = restaurant_config('KIPS_DB_PORT', '3306');
+    $database = restaurant_config('KIPS_DB_NAME', 'kips_restaurant');
 
     $mysqlOptions = [];
     if ($dsn !== '' || $host !== '') {
@@ -142,18 +174,58 @@ function restaurant_db(): PDO
         }
     }
 
-    $databaseError = null;
-    if ($dsn || $host) {
-        try {
-            if ($dsn) {
-                $db = new PDO($dsn, $username, $password, $mysqlOptions);
-            } else {
-                $port = restaurant_config('KIPS_DB_PORT', '3306');
-                $database = restaurant_config('KIPS_DB_NAME', 'kips_restaurant');
-                $db = new PDO("mysql:host={$host};port={$port};dbname={$database};charset=utf8mb4", $username, $password, $mysqlOptions);
+    $tlsOptions = $mysqlOptions;
+    if ($dsn !== '' || $host !== '') {
+        $tlsOptions[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = true;
+        foreach (['/etc/ssl/certs/ca-certificates.crt', '/etc/pki/tls/certs/ca-bundle.crt'] as $candidate) {
+            if (is_file($candidate)) {
+                $tlsOptions[PDO::MYSQL_ATTR_SSL_CA] = $candidate;
+                break;
             }
+        }
+    }
+
+    $connect = static function (array $options, bool $withDatabase = true) use ($dsn, $host, $port, $database, $username, $password): PDO {
+        if ($dsn !== '' && $withDatabase) {
+            return new PDO($dsn, $username, $password, $options);
+        }
+        $dbname = $withDatabase ? ";dbname={$database}" : '';
+        return new PDO("mysql:host={$host};port={$port}{$dbname};charset=utf8mb4", $username, $password, $options);
+    };
+
+    $databaseError = null;
+    if ($dsn !== '' || $host !== '') {
+        try {
+            $db = $connect($mysqlOptions);
         } catch (PDOException $exception) {
-            $databaseError = $exception->getMessage();
+            $detail = restaurant_mysql_error_detail($exception);
+            if (
+                $detail['category'] === 'unknown_database'
+                && $dsn === ''
+                && $host !== ''
+                && preg_match('/\A[A-Za-z0-9_]+\z/', $database)
+            ) {
+                try {
+                    $server = $connect($mysqlOptions, false);
+                    $server->exec("CREATE DATABASE IF NOT EXISTS `{$database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+                    $db = $connect($mysqlOptions);
+                } catch (PDOException $retry) {
+                    $exception = $retry;
+                    $detail = restaurant_mysql_error_detail($retry);
+                }
+            }
+            if (!($db instanceof PDO) && $detail['category'] === 'tls_required') {
+                try {
+                    $db = $connect($tlsOptions);
+                } catch (PDOException $retry) {
+                    $exception = $retry;
+                    $detail = restaurant_mysql_error_detail($retry);
+                }
+            }
+            if (!($db instanceof PDO)) {
+                $databaseError = $exception->getMessage();
+                $GLOBALS['restaurant_db_failure'] = $detail + ['database' => $database];
+            }
         }
     }
 

@@ -261,6 +261,7 @@ try {
             'staff' => $staff,
             'storage' => restaurant_db()->getAttribute(PDO::ATTR_DRIVER_NAME),
             'db_configured' => restaurant_config('KIPS_DB_DSN') !== '' || restaurant_config('KIPS_DB_HOST') !== '',
+            'db_error' => restaurant_db_diagnostic(),
             'csrf_token' => restaurant_csrf_token()
         ]);
     }
