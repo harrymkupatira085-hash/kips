@@ -202,12 +202,33 @@ function currencyCompact(value) {
     return `${currencySymbol()} ${Number(value || 0).toLocaleString('en-US')}`;
 }
 
-function whatsappGuestLink(phone, message) {
+function guestPhoneDigits(phone) {
     let digits = String(phone || '').replace(/\D/g, '');
     const countryCode = String(dashboardData?.settings?.country_code || '265').replace(/\D/g, '') || '265';
     if (digits.startsWith('0')) digits = countryCode + digits.slice(1);
-    if (digits.length < 8) return '';
-    return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+    return digits.length >= 8 ? digits : '';
+}
+
+function whatsappGuestLink(phone, message) {
+    const digits = guestPhoneDigits(phone);
+    return digits ? `https://wa.me/${digits}?text=${encodeURIComponent(message)}` : '';
+}
+
+function smsGuestLink(phone, message) {
+    const digits = guestPhoneDigits(phone);
+    if (!digits) return '';
+    const body = encodeURIComponent(message);
+    return /iPhone|iPad|iPod/i.test(navigator.userAgent)
+        ? `sms:+${digits}&body=${body}`
+        : `sms:+${digits}?body=${body}`;
+}
+
+function guestVerificationMessage(order) {
+    const name = order.customer_name || 'there';
+    const restaurant = dashboardData?.settings?.restaurant_name || 'KIPS';
+    const total = formatPrice(order.total_price);
+    const phone = dashboardData?.settings?.phone_display || '';
+    return `Hello ${name}, this is ${restaurant}. Please confirm order #${order.id} for ${total}. Reply YES to confirm${phone ? `, or call ${phone}` : ''}.`;
 }
 
 function guestStatusMessage(order) {
@@ -667,7 +688,10 @@ function orderCard(order, orders) {
     const statusLabel = status === 'awaiting_verification' ? 'awaiting confirmation' : status.replaceAll('_', ' ');
     let actions = '';
     if (status === 'awaiting_verification') {
-        actions = `${canAccess('orders') ? `<button class="mini-primary" data-action="verify" data-id="${order.id}">Confirm &amp; queue</button>` : ''}<button class="mini-quiet" data-action="cancel" data-id="${order.id}" data-current-status="awaiting_verification">Cancel</button>`;
+        const verification = guestVerificationMessage(order);
+        const verifyWhatsApp = whatsappGuestLink(order.customer_phone, verification);
+        const verifySms = smsGuestLink(order.customer_phone, verification);
+        actions = `${verifyWhatsApp ? `<a class="mini-primary" href="${escapeHtml(verifyWhatsApp)}" target="_blank" rel="noopener noreferrer">Verify via WhatsApp</a>` : ''}${verifySms ? `<a class="mini-quiet" href="${escapeHtml(verifySms)}" title="Use this if the guest is not on WhatsApp">Send SMS</a>` : ''}${canAccess('orders') ? `<button class="mini-primary" data-action="verify" data-id="${order.id}">Confirm &amp; queue</button>` : ''}<button class="mini-quiet" data-action="cancel" data-id="${order.id}" data-current-status="awaiting_verification">Cancel</button>`;
     } else if (status === 'verified') {
         const index = queue.findIndex((item) => Number(item.id) === Number(order.id));
         actions = `<button class="mini-quiet" data-action="up" data-id="${order.id}" ${index === 0 ? 'disabled' : ''}>↑ Move up</button><button class="mini-quiet" data-action="down" data-id="${order.id}" ${index === queue.length - 1 ? 'disabled' : ''}>↓ Move down</button>${canAccess('orders') ? `<button class="mini-primary" data-action="preparing" data-current-status="verified" data-id="${order.id}" ${Number(order.id) !== firstVerifiedId ? 'disabled' : ''}>${Number(order.id) === firstVerifiedId ? 'Start next' : 'Waiting'}</button>` : ''}`;
@@ -675,7 +699,7 @@ function orderCard(order, orders) {
         actions = canAccess('orders') ? `<button class="mini-primary" data-action="complete" data-current-status="preparing" data-id="${order.id}">Complete order</button>` : '<span class="app-muted">In preparation</span>';
     }
     const guestWhatsApp = whatsappGuestLink(order.customer_phone, guestStatusMessage(order));
-    if (guestWhatsApp) {
+    if (guestWhatsApp && status !== 'awaiting_verification') {
         actions += `<a class="mini-quiet" href="${escapeHtml(guestWhatsApp)}" target="_blank" rel="noopener noreferrer">${escapeHtml(guestNotifyLabel(order))}</a>`;
     }
     if (canAccess('payments') && Number(order.paid_amount) < Number(order.total_price)) {
