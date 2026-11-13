@@ -145,15 +145,22 @@ function restaurant_db(): PDO
         return $db;
     }
 
-    $dsn = restaurant_config('KIPS_DB_DSN');
-    $username = restaurant_config('KIPS_DB_USER');
-    $password = restaurant_config('KIPS_DB_PASSWORD');
-    $host = restaurant_config('KIPS_DB_HOST');
-    $port = restaurant_config('KIPS_DB_PORT', '3306');
-    $database = restaurant_config('KIPS_DB_NAME', 'kips_restaurant');
+    $dsn = trim(restaurant_config('KIPS_DB_DSN'));
+    $raw = [
+        'user' => restaurant_config('KIPS_DB_USER'),
+        'password' => restaurant_config('KIPS_DB_PASSWORD'),
+        'host' => restaurant_config('KIPS_DB_HOST'),
+        'port' => restaurant_config('KIPS_DB_PORT', '3306'),
+        'database' => restaurant_config('KIPS_DB_NAME', 'kips_restaurant')
+    ];
+    $clean = array_map('trim', $raw);
+    $credentials = [$clean];
+    if (array_filter($raw, static fn ($value, $key): bool => $value !== $clean[$key], ARRAY_FILTER_USE_BOTH)) {
+        $credentials[] = $raw;
+    }
 
     $mysqlOptions = [];
-    if ($dsn !== '' || $host !== '') {
+    if ($dsn !== '' || $clean['host'] !== '') {
         $mysqlOptions[PDO::ATTR_TIMEOUT] = 5;
         $ssl = strtolower(restaurant_config('KIPS_DB_SSL'));
         if ($ssl !== '' && !in_array($ssl, ['0', 'false', 'off', 'no'], true)) {
@@ -175,7 +182,7 @@ function restaurant_db(): PDO
     }
 
     $tlsOptions = $mysqlOptions;
-    if ($dsn !== '' || $host !== '') {
+    if ($dsn !== '' || $clean['host'] !== '') {
         $tlsOptions[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = true;
         foreach (['/etc/ssl/certs/ca-certificates.crt', '/etc/pki/tls/certs/ca-bundle.crt'] as $candidate) {
             if (is_file($candidate)) {
@@ -185,47 +192,67 @@ function restaurant_db(): PDO
         }
     }
 
-    $connect = static function (array $options, bool $withDatabase = true) use ($dsn, $host, $port, $database, $username, $password): PDO {
+    $connect = static function (array $options, bool $withDatabase, array $target) use ($dsn): PDO {
         if ($dsn !== '' && $withDatabase) {
-            return new PDO($dsn, $username, $password, $options);
+            return new PDO($dsn, $target['user'], $target['password'], $options);
         }
-        $dbname = $withDatabase ? ";dbname={$database}" : '';
-        return new PDO("mysql:host={$host};port={$port}{$dbname};charset=utf8mb4", $username, $password, $options);
+        $dbname = $withDatabase ? ";dbname={$target['database']}" : '';
+        return new PDO("mysql:host={$target['host']};port={$target['port']}{$dbname};charset=utf8mb4", $target['user'], $target['password'], $options);
     };
 
     $databaseError = null;
-    if ($dsn !== '' || $host !== '') {
-        try {
-            $db = $connect($mysqlOptions);
-        } catch (PDOException $exception) {
-            $detail = restaurant_mysql_error_detail($exception);
-            if (
-                $detail['category'] === 'unknown_database'
-                && $dsn === ''
-                && $host !== ''
-                && preg_match('/\A[A-Za-z0-9_]+\z/', $database)
-            ) {
-                try {
-                    $server = $connect($mysqlOptions, false);
-                    $server->exec("CREATE DATABASE IF NOT EXISTS `{$database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-                    $db = $connect($mysqlOptions);
-                } catch (PDOException $retry) {
-                    $exception = $retry;
-                    $detail = restaurant_mysql_error_detail($retry);
+    if ($dsn !== '' || $clean['host'] !== '') {
+        $db = null;
+        $exception = null;
+        $detail = null;
+        $target = $clean;
+        foreach ($credentials as $candidate) {
+            $target = $candidate;
+            try {
+                $db = $connect($mysqlOptions, true, $candidate);
+                break;
+            } catch (PDOException $attempt) {
+                $exception = $attempt;
+                $detail = restaurant_mysql_error_detail($attempt);
+                if (
+                    $detail['category'] === 'unknown_database'
+                    && $dsn === ''
+                    && $candidate['host'] !== ''
+                    && preg_match('/\A[A-Za-z0-9_]+\z/', $candidate['database'])
+                ) {
+                    try {
+                        $server = $connect($mysqlOptions, false, $candidate);
+                        $server->exec("CREATE DATABASE IF NOT EXISTS `{$candidate['database']}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+                        $db = $connect($mysqlOptions, true, $candidate);
+                        break;
+                    } catch (PDOException $retry) {
+                        $exception = $retry;
+                        $detail = restaurant_mysql_error_detail($retry);
+                    }
+                }
+                if (!($db instanceof PDO) && $detail['category'] === 'tls_required') {
+                    try {
+                        $db = $connect($tlsOptions, true, $candidate);
+                        break;
+                    } catch (PDOException $retry) {
+                        $exception = $retry;
+                        $detail = restaurant_mysql_error_detail($retry);
+                    }
                 }
             }
-            if (!($db instanceof PDO) && $detail['category'] === 'tls_required') {
-                try {
-                    $db = $connect($tlsOptions);
-                } catch (PDOException $retry) {
-                    $exception = $retry;
-                    $detail = restaurant_mysql_error_detail($retry);
-                }
-            }
-            if (!($db instanceof PDO)) {
-                $databaseError = $exception->getMessage();
-                $GLOBALS['restaurant_db_failure'] = $detail + ['database' => $database];
-            }
+        }
+        if (!($db instanceof PDO)) {
+            $databaseError = $exception->getMessage();
+            $GLOBALS['restaurant_db_failure'] = [
+                'host' => $target['host'],
+                'port' => $target['port'],
+                'database' => $target['database'],
+                'user_length' => strlen($target['user']),
+                'user_fingerprint' => substr(hash('sha256', $target['user']), 0, 12),
+                'password_length' => strlen($target['password']),
+                'password_had_whitespace' => $raw['password'] !== $clean['password'],
+                'sqlstate' => (string) ($exception->errorInfo[0] ?? '')
+            ] + $detail;
         }
     }
 
