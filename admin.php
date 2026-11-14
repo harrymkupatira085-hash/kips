@@ -39,7 +39,7 @@ restaurant_start_session();
                     <input id="authUsername" name="username" autocomplete="username" required maxlength="50" placeholder="Enter your username">
                     <label for="authPassword">Password</label>
                     <input id="authPassword" name="password" type="password" autocomplete="current-password" required minlength="1" maxlength="200" placeholder="Enter your password">
-                    <button id="authSubmit" class="app-primary" type="submit">Sign in</button>
+                    <button id="authSubmit" class="app-primary" type="submit">Log in</button>
                 </form>
                 <p id="authMessage" class="app-message" role="status" aria-live="polite"></p>
                 <a class="auth-home-link" href="index.php">← Back to restaurant</a>

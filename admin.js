@@ -169,8 +169,8 @@ function showAuth(isSetup) {
     authTitle.textContent = isSetup ? 'Set up your restaurant' : 'Welcome back';
     authIntro.textContent = isSetup
         ? 'Create the first administrator account. Use a strong password of at least 12 characters.'
-        : 'Sign in with your personal staff account to open your workspace.';
-    authSubmit.textContent = isSetup ? 'Create administrator account' : 'Sign in securely';
+        : 'Log in with your personal staff account to open your workspace.';
+    authSubmit.textContent = isSetup ? 'Create administrator account' : 'Log in securely';
     document.getElementById('authPassword').autocomplete = isSetup ? 'new-password' : 'current-password';
     document.getElementById('authPassword').minLength = isSetup ? 12 : 1;
     authMessage.textContent = '';
