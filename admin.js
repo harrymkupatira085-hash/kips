@@ -833,7 +833,10 @@ async function renderSettings() {
             </section>
             <section class="app-panel"><div class="panel-heading"><div><h2>Checkout charges</h2><p>Applied to new orders and shown on the customer's checkout and private order link.</p></div></div>
                 <div class="settings-grid settings-grid-small">
-                    <label>Delivery fee<input name="delivery_fee" type="number" min="0" max="100000000" step="1" value="${escapeHtml(settings.delivery_fee || '0')}"><small>Charged only on delivery orders.</small></label>
+                    <label>Delivery fee<input name="delivery_fee" type="number" min="0" max="100000000" step="1" value="${escapeHtml(settings.delivery_fee || '0')}"><small>Base charge on every delivery order.</small></label>
+                    <label>Delivery fee per km<input name="delivery_fee_per_km" type="number" min="0" max="100000000" step="0.01" value="${escapeHtml(settings.delivery_fee_per_km || '0')}"><small>Added to the base fee based on the guest's distance. Use 0 for a flat fee only.</small></label>
+                    <label>Restaurant latitude<input name="restaurant_lat" maxlength="20" inputmode="decimal" value="${escapeHtml(settings.restaurant_lat || '')}" placeholder="-13.9626"><small>Right-click your restaurant in Google Maps and copy the coordinates.</small></label>
+                    <label>Restaurant longitude<input name="restaurant_lng" maxlength="20" inputmode="decimal" value="${escapeHtml(settings.restaurant_lng || '')}" placeholder="33.7741"><small>Needed with the latitude for distance-based fees.</small></label>
                     <label>VAT / tax rate (%)<input name="tax_rate" type="number" min="0" max="100" step="0.01" value="${escapeHtml(settings.tax_rate || '0')}"><small>Calculated on the food subtotal. Use 0 if prices already include tax.</small></label>
                 </div>
                 <p class="settings-note">The customer pays the subtotal plus delivery fee and tax. Staff discounts can be entered when creating an order at the counter.</p>

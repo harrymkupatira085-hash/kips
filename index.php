@@ -458,7 +458,7 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
 
             <div class="modal-breakdown" aria-live="polite">
                 <div class="total-row"><span>Subtotal</span><strong id="modalSubtotal"><?= htmlspecialchars($money(0)) ?></strong></div>
-                <div class="total-row" id="modalDeliveryRow" hidden><span>Delivery fee</span><strong id="modalDeliveryFee"><?= htmlspecialchars($money(0)) ?></strong></div>
+                <div class="total-row" id="modalDeliveryRow" hidden><span id="modalDeliveryLabel">Delivery fee</span><strong id="modalDeliveryFee"><?= htmlspecialchars($money(0)) ?></strong></div>
                 <div class="total-row" id="modalTaxRow" hidden><span id="modalTaxLabel">VAT</span><strong id="modalTaxAmount"><?= htmlspecialchars($money(0)) ?></strong></div>
                 <div class="total-row total-row-strong"><span>Total</span><strong id="modalTotalPrice"><?= htmlspecialchars($money(0)) ?></strong></div>
             </div>
@@ -578,6 +578,9 @@ if (!is_string($page) || !in_array($page, $validPages, true)) {
         'phone_display' => $settings['phone_display'],
         'country_code' => preg_replace('/\D+/', '', $settings['country_code']) ?: '265',
         'delivery_fee' => $deliveryFeeSetting,
+        'delivery_fee_per_km' => (float) $settings['delivery_fee_per_km'],
+        'restaurant_lat' => $settings['restaurant_lat'],
+        'restaurant_lng' => $settings['restaurant_lng'],
         'tax_rate' => $taxRateSetting
     ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
     <script src="script.js?v=4-<?= (int) filemtime(__DIR__ . '/script.js') ?>"></script>

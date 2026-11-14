@@ -153,6 +153,15 @@ function api_extract_map_coords(string $text): ?array
     return null;
 }
 
+function api_haversine_km(float $lat1, float $lng1, float $lat2, float $lng2): float
+{
+    $radians = static fn (float $degrees): float => $degrees * M_PI / 180;
+    $dLat = $radians($lat2 - $lat1);
+    $dLng = $radians($lng2 - $lng1);
+    $a = sin($dLat / 2) ** 2 + cos($radians($lat1)) * cos($radians($lat2)) * sin($dLng / 2) ** 2;
+    return 6371 * 2 * atan2(sqrt($a), sqrt(1 - $a));
+}
+
 function api_audit(string $action, string $entity, ?int $entityId, string $details = ''): void
 {
     $staff = restaurant_current_staff();
@@ -764,7 +773,19 @@ try {
         }
         $subtotal = $total;
         $settings = restaurant_settings();
-        $deliveryFee = $orderType === 'delivery' ? max(0, (int) $settings['delivery_fee']) : 0;
+        $deliveryFee = 0;
+        if ($orderType === 'delivery') {
+            $baseFee = max(0, (int) $settings['delivery_fee']);
+            $perKm = max(0.0, (float) ($settings['delivery_fee_per_km'] ?? '0'));
+            $restaurantLat = filter_var($settings['restaurant_lat'] ?? '', FILTER_VALIDATE_FLOAT);
+            $restaurantLng = filter_var($settings['restaurant_lng'] ?? '', FILTER_VALIDATE_FLOAT);
+            if ($perKm > 0 && $deliveryLat !== null && $deliveryLng !== null && $restaurantLat !== false && $restaurantLng !== false) {
+                $distanceKm = api_haversine_km($restaurantLat, $restaurantLng, $deliveryLat, $deliveryLng);
+                $deliveryFee = $baseFee + (int) round($distanceKm * $perKm);
+            } else {
+                $deliveryFee = $baseFee;
+            }
+        }
         $taxRate = max(0.0, min(100.0, (float) $settings['tax_rate']));
         $taxAmount = (int) round($subtotal * $taxRate / 100);
         $discount = 0;
@@ -892,6 +913,20 @@ try {
         if ($deliveryFee === false || $deliveryFee < 0 || $deliveryFee > 100000000) {
             api_response(['error' => 'Delivery fee must be a whole amount between 0 and 100,000,000.'], 422);
         }
+        $deliveryPerKm = $input['delivery_fee_per_km'] ?? 0;
+        if (!is_numeric($deliveryPerKm) || (float) $deliveryPerKm < 0 || (float) $deliveryPerKm > 100000000) {
+            api_response(['error' => 'Delivery fee per km must be between 0 and 100,000,000.'], 422);
+        }
+        $restaurantLat = $optionalText('restaurant_lat', 'Restaurant latitude', 20);
+        $restaurantLng = $optionalText('restaurant_lng', 'Restaurant longitude', 20);
+        foreach (['Restaurant latitude' => $restaurantLat, 'Restaurant longitude' => $restaurantLng] as $coordinateLabel => $coordinate) {
+            if ($coordinate !== '' && !is_numeric($coordinate)) {
+                api_response(['error' => $coordinateLabel . ' must be a number, or leave it empty.'], 422);
+            }
+        }
+        if (($restaurantLat === '') !== ($restaurantLng === '')) {
+            api_response(['error' => 'Enter both the restaurant latitude and longitude, or leave both empty.'], 422);
+        }
         $taxRate = $input['tax_rate'] ?? 0;
         if (!is_numeric($taxRate) || (float) $taxRate < 0 || (float) $taxRate > 100) {
             api_response(['error' => 'Tax rate must be a percentage between 0 and 100.'], 422);
@@ -908,6 +943,9 @@ try {
             'instagram_url' => $instagram,
             'currency_symbol' => $currency,
             'delivery_fee' => (string) $deliveryFee,
+            'delivery_fee_per_km' => (string) ((float) $deliveryPerKm),
+            'restaurant_lat' => $restaurantLat,
+            'restaurant_lng' => $restaurantLng,
             'tax_rate' => rtrim(rtrim(number_format((float) $taxRate, 2, '.', ''), '0'), '.') ?: '0'
         ]);
         api_audit('settings_updated', 'settings', null, 'Restaurant profile and checkout settings updated');

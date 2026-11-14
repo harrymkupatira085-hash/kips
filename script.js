@@ -58,6 +58,14 @@ const kipsSettings = (() => {
 })();
 const currencySymbol = kipsSettings.currency_symbol || 'MK';
 const checkoutDeliveryFee = Math.max(0, Number(kipsSettings.delivery_fee) || 0);
+const checkoutDeliveryPerKm = Math.max(0, Number(kipsSettings.delivery_fee_per_km) || 0);
+const restaurantCoords = (() => {
+    const lat = Number(kipsSettings.restaurant_lat);
+    const lng = Number(kipsSettings.restaurant_lng);
+    return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180
+        ? { lat, lng }
+        : null;
+})();
 const checkoutTaxRate = Math.max(0, Number(kipsSettings.tax_rate) || 0);
 
 try {
@@ -161,11 +169,26 @@ function cartSubtotal() {
         .reduce((sum, amount) => sum + amount, 0);
 }
 
+function haversineKm(from, to) {
+    const radians = (degrees) => degrees * Math.PI / 180;
+    const dLat = radians(to.lat - from.lat);
+    const dLng = radians(to.lng - from.lng);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(radians(from.lat)) * Math.cos(radians(to.lat)) * Math.sin(dLng / 2) ** 2;
+    return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function deliveryEstimate() {
+    if (orderType?.value !== 'delivery' || !checkoutDeliveryPerKm || !restaurantCoords || !deliveryCoords) return null;
+    const km = haversineKm(restaurantCoords, deliveryCoords);
+    return { km, fee: checkoutDeliveryFee + Math.round(km * checkoutDeliveryPerKm) };
+}
+
 function checkoutTotals() {
     const subtotal = cartSubtotal();
-    const delivery = orderType?.value === 'delivery' ? checkoutDeliveryFee : 0;
+    const estimate = deliveryEstimate();
+    const delivery = orderType?.value === 'delivery' ? (estimate ? estimate.fee : checkoutDeliveryFee) : 0;
     const tax = Math.round(subtotal * checkoutTaxRate / 100);
-    return { subtotal, delivery, tax, total: subtotal + delivery + tax };
+    return { subtotal, delivery, tax, total: subtotal + delivery + tax, distanceKm: estimate ? estimate.km : null };
 }
 
 function updateModalTotals() {
@@ -176,6 +199,8 @@ function updateModalTotals() {
     };
     setText('modalSubtotal', formatKwacha(totals.subtotal));
     setText('modalDeliveryFee', formatKwacha(totals.delivery));
+    const deliveryLabel = document.getElementById('modalDeliveryLabel');
+    if (deliveryLabel) deliveryLabel.textContent = totals.distanceKm !== null ? `Delivery fee (${totals.distanceKm.toFixed(1)} km)` : 'Delivery fee';
     setText('modalTaxAmount', formatKwacha(totals.tax));
     setText('modalTotalPrice', formatKwacha(totals.total));
     const deliveryRow = document.getElementById('modalDeliveryRow');
@@ -489,7 +514,12 @@ function setDeliveryCoords(lat, lng, message) {
     }
     if (deliveryMapLink) deliveryMapLink.href = googleMapsUrl(lat, lng);
     if (deliveryMapPreview) deliveryMapPreview.hidden = false;
-    if (locationStatus && message) locationStatus.textContent = message;
+    const estimate = deliveryEstimate();
+    if (locationStatus) {
+        locationStatus.textContent = (message || 'Location added.')
+            + (estimate ? ` About ${estimate.km.toFixed(1)} km from us · delivery fee ${formatKwacha(estimate.fee)}.` : '');
+    }
+    updateModalTotals();
 }
 
 function resetDeliveryLocation() {
@@ -501,6 +531,7 @@ function resetDeliveryLocation() {
     if (deliveryMapInput) deliveryMapInput.value = '';
     if (locationStatus) locationStatus.textContent = locationIdleMessage;
     if (locateMeBtn) locateMeBtn.disabled = false;
+    updateModalTotals();
 }
 
 function syncDeliveryLocationVisibility() {

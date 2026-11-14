@@ -35,6 +35,9 @@ function restaurant_settings_defaults(): array
         'instagram_url' => 'https://www.instagram.com/mkupadoingthings/',
         'currency_symbol' => 'MK',
         'delivery_fee' => '0',
+        'delivery_fee_per_km' => '0',
+        'restaurant_lat' => '',
+        'restaurant_lng' => '',
         'tax_rate' => '0'
     ];
 }
